@@ -63,8 +63,9 @@ roles; the raw `.guild.json` response is not kept.
 - `data/rote/<planet>.ops.json` / `.ops.html` — op-fill planner output for one
   planet (`rote_ops.py`): which fills are covered, missing, closest owners,
   member assignments.
-- `data/rote/calculator.html` — interactive day-by-day star calculator
-  (`rote_calc.py`), a self-contained HTML page. Full model below.
+- `data/guilds/<guildId>.calculator.html` — interactive day-by-day star
+  calculator for that guild (`rote_calc.py`), a self-contained HTML page.
+  Full model below.
 - `data/rote/*.json` — raw comlink collections cached for offline re-runs, but
   only the target TB's slice of `campaign` (91MB -> ~0.7MB) and
   `territoryBattleDefinition` are kept.

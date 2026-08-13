@@ -1088,7 +1088,7 @@ def main(argv=None):
         guild_gp=data["guildGp"],
         data_json=data_json,
     )
-    outpath = outdir / "rote" / "calculator.html"
+    outpath = outdir / "guilds" / f"{args.guild_id}.calculator.html"
     outpath.parent.mkdir(parents=True, exist_ok=True)
     outpath.write_text(html)
     print(f"wrote {outpath}")
