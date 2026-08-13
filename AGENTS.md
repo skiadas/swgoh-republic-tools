@@ -214,12 +214,35 @@ dark/neutral/light/specials order. Sanity reference (jsdom-verified): 100% CM
 
 ## Refresh flags / cache invalidation
 
-- `fetch_guild.py --refresh` re-downloads players (default: skips existing).
+- `fetch_guild.py` always fetches fresh (streaming; nothing to skip).
 - `fetch_guild.py --limit N` for a small test batch; `--max-rps` (default 4)
   throttles to stay under EA's caps (~20 req/s total, ~100 for /player).
 - `fetch_guild.py --refresh-game` and `guild_summary.py --refresh-game`
   rebuild `data/game/` caches after a game update. The report scripts only
   need comlink for this; otherwise fully offline.
+
+## Web service (`server/`)
+
+FastAPI app serving each registered guild's generated pages, with a
+token-gated admin. Run locally with `uv run uvicorn server.app:app` (or
+`uv run python server/app.py`). Env config:
+
+- `SWGOH_DATA_ROOT` — data directory (shared with the CLI tools).
+- `SWGOH_COMLINK` — swgoh-comlink URL (fetch/refresh only).
+- `SWGOH_ADMIN_TOKEN` — bearer/query token for `/admin*` (required for admin).
+- `SWGOH_NIGHTLY=1` — enable the nightly refresh loop (`SWGOH_REFRESH_HOUR`,
+  default 4 UTC) which fetches each enabled guild via comlink then regenerates
+  its pages.
+- `SWGOH_PORT` — uvicorn port (default 8000).
+
+Layout: `server/db.py` (SQLite: guild registry incl. per-guild `tb_id`/
+`squads_json`/`enabled`, `discord_links`, `job_log`), `server/jobs.py`
+(JobRunner — regen offline, refresh via comlink, nightly loop; serialized by a
+lock), `server/app.py` (routes). Read access is open for registered guilds at
+`/g/<id>/{report,calc}`; admin actions are gated by `SWGOH_ADMIN_TOKEN`.
+Per-guild custom `squads_json` is materialized to
+`data/guilds/<id>.squads-config.json` and passed to `squad_report`.
+Tests: `tests/test_server.py` (TestClient, no comlink).
 
 ## Verification patterns
 
