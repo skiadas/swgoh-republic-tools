@@ -1,0 +1,70 @@
+{
+  "categories": [
+    {
+      "name": "TB",
+      "squads": [
+        {
+          "name": "Mandalore unlock",
+          "minRelic": 7,
+          "size": 3,
+          "required": ["Bo-Katan (Mand'alor)", "The Mandalorian (Beskar Armor)"],
+          "pool": ["Paz Vizsla", "IG-12 & Grogu"],
+          "poolCount": 1
+        },
+        {
+          "name": "Zeffo unlock",
+          "minRelic": 7,
+          "size": 2,
+          "required": ["Cere Junda", "Jedi Knight Cal Kestis"]
+        },
+        {
+          "name": "Geos",
+          "minRelic": 7,
+          "size": 5,
+          "required": ["Geonosian Brood Alpha", "Geonosian Soldier", "Geonosian Spy", "Poggle the Lesser", "Sun Fac"]
+        }
+      ]
+    },
+    {
+      "name": "Raid",
+      "squads": [
+        {
+          "name": "JMMV",
+          "mode": "commonRelic",
+          "size": 3,
+          "required": ["Jedi Master Mace Windu", "Depa Billaba", "Temple Guard"]
+        },
+        {
+          "name": "Pirates",
+          "mode": "commonRelic",
+          "size": 5,
+          "required": ["Pirate King Hondo Ohnaka", "Hondo Ohnaka", "Captain Silvo", "Brutus", "Vane"]
+        },
+        {
+          "name": "Bad Batch",
+          "mode": "commonRelic",
+          "size": 5,
+          "required": ["Omega (Fugitive)", "Wrecker (Mercenary)", "Batcher", "Hunter (Mercenary)", "Crosshair (Scarred)"]
+        },
+        {
+          "name": "Vanguard",
+          "mode": "commonRelic",
+          "size": 5,
+          "required": ["Kelleran Beq", "Jocasta Nu", "Shaak Ti"],
+          "pool": ["Aayla Secura", "Qui-Gon Jinn", "Luminara Unduli", "Kit Fisto", "Plo Koon"],
+          "poolCount": 2
+        },
+        {
+          "name": "Empire",
+          "mode": "commonRelic",
+          "size": 5,
+          "required": ["Grand Moff Tarkin", "Disguised Clone Trooper", "CX-2", "CC-1119 \"Appo\"", "RC-1262 \"Scorch\""]
+        }
+      ]
+    },
+    {
+      "name": "TW",
+      "squads": []
+    }
+  ]
+}
