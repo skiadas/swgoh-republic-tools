@@ -103,6 +103,9 @@ class DB:
     def get_discord_link(self, discord_id):
         return self._row("SELECT * FROM discord_links WHERE discord_id = ?", (discord_id,))
 
+    def list_discord_links(self):
+        return self._all("SELECT * FROM discord_links ORDER BY created_at DESC")
+
     def set_discord_link(self, discord_id, allycode, player_id=None, linked_by=None):
         self._exec(
             "INSERT OR REPLACE INTO discord_links (discord_id, allycode, player_id, linked_by, created_at)"

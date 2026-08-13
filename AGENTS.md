@@ -234,15 +234,24 @@ token-gated admin. Run locally with `uv run uvicorn server.app:app` (or
   default 4 UTC) which fetches each enabled guild via comlink then regenerates
   its pages.
 - `SWGOH_PORT` — uvicorn port (default 8000).
+- `SWGOH_DISCORD_CLIENT_ID` / `SWGOH_DISCORD_CLIENT_SECRET` /
+  `SWGOH_DISCORD_REDIRECT` — enable Discord OAuth login (no passwords).
+- `SWGOH_APP_SECRET` — secret for signed session cookies (set in prod; random
+  per-process fallback in dev). `SWGOH_ADMIN_DISCORD_ID` — your Discord id =
+  admin user. `SWGOH_COOKIE_SECURE=1` behind HTTPS.
 
 Layout: `server/db.py` (SQLite: guild registry incl. per-guild `tb_id`/
 `squads_json`/`enabled`, `discord_links`, `job_log`), `server/jobs.py`
 (JobRunner — regen offline, refresh via comlink, nightly loop; serialized by a
-lock), `server/app.py` (routes). Read access is open for registered guilds at
-`/g/<id>/{report,calc}`; admin actions are gated by `SWGOH_ADMIN_TOKEN`.
-Per-guild custom `squads_json` is materialized to
-`data/guilds/<id>.squads-config.json` and passed to `squad_report`.
-Tests: `tests/test_server.py` (TestClient, no comlink).
+lock), `server/auth.py` (Discord OAuth + signed cookies + roster-derived
+roles), `server/app.py` (routes). Read access is open for registered guilds at
+`/g/<id>/{report,calc}`; `/g/<id>/{squads,settings}` require an officer/leader
+roster role (or admin); `/admin*` is gated by `SWGOH_ADMIN_TOKEN`. Discord
+links (`discord_id → allycode`) are created by an admin; roles come from the
+guild manifest's `memberLevel` (2=member, 3=officer, 4=leader). Per-guild
+custom `squads_json` is materialized to `data/guilds/<id>.squads-config.json`
+and passed to `squad_report`. Tests: `tests/test_server.py` (TestClient, no
+comlink).
 
 ## Verification patterns
 

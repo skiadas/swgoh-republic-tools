@@ -110,3 +110,79 @@ def test_settings_update(tmp_path):
     row = conn.execute("SELECT tb_id, enabled FROM guilds WHERE id='G1'").fetchone()
     assert row[0] == "t06D"
     assert row[1] == 0
+
+
+def _set_session(client, discord_id, username="U"):
+    from server.auth import SESSION_COOKIE, sign_session
+
+    client.cookies.set(SESSION_COOKIE, sign_session({"discord_id": discord_id, "username": username}))
+
+
+def _link(client, tmp_path, discord_id, allycode):
+    client.app.state.db.set_discord_link(discord_id, allycode)
+
+
+def test_auth_me_anonymous(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    assert "Not signed in" in client.get("/auth/me").text
+
+
+def test_roles_for_maps_member_level(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    from server.auth import roles_for
+
+    # G1 manifest member has memberLevel 4 (leader)
+    roles = roles_for(client.app.state.db, tmp_path, "nobody")
+    assert roles == {}
+    _link(client, tmp_path, "d1", "123")
+    assert roles_for(client.app.state.db, tmp_path, "d1") == {"G1": "leader"}
+
+
+def test_officer_gate_rejects_unlinked(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _set_session(client, "d1")
+    r = client.post("/g/G1/squads", data={"squads": "{}"}, follow_redirects=False)
+    assert r.status_code == 403
+    r = client.post("/g/G1/settings", data={"tb_id": "t05D"}, follow_redirects=False)
+    assert r.status_code == 403
+
+
+def test_officer_squads_allowed(tmp_path, monkeypatch):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _set_session(client, "d1")
+    _link(client, tmp_path, "d1", "123")  # memberLevel 4 -> leader
+    from swgoh_reviewer import squads as squads_mod
+
+    called = {}
+    monkeypatch.setattr(client.app.state.runner, "regen", lambda *a, **k: called.update(job="ok"))
+    valid = '{"categories": [{"name": "Test", "squads": [{"name": "S1", "required": ["Bossk"]}]}]}'
+    r = client.post("/g/G1/squads", data={"squads": valid}, follow_redirects=False)
+    assert r.status_code == 303
+    assert called.get("job") == "ok"
+    row = client.app.state.db.get_guild("G1")
+    assert "Bossk" in row["squads_json"]
+
+
+def test_officer_squads_invalid_json(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _set_session(client, "d1")
+    _link(client, tmp_path, "d1", "123")
+    r = client.post("/g/G1/squads", data={"squads": "{not json"}, follow_redirects=False)
+    assert r.status_code == 400
+
+
+def test_admin_link_create(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    r = client.post("/admin/links", params={"token": "secret", "discord_id": "d9", "allycode": "999"})
+    assert r.status_code == 200
+    assert client.app.state.db.get_discord_link("d9")["allycode"] == "999"
