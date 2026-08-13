@@ -3,11 +3,17 @@
 Single $7/mo Lightsail Linux VM runs the whole service in Docker Compose:
 swgoh-comlink (EA gateway), the FastAPI app, and Caddy (HTTPS).
 
-Two paths: a **minimal smoke test** (admin token only, no domain, direct
-`http://<ip>:8000`) or the **full setup** (domain + Discord login + Caddy
-TLS). Both use the same compose file; for minimal, leave `SITE_DOMAIN` and the
-Discord fields blank and open port 8000 on the Lightsail firewall instead of
-80/443.
+Two paths: a **minimal smoke test** (admin token only, no domain, app reachable
+directly on port 80) or the **full setup** (domain + Discord login + Caddy
+TLS). For minimal, leave `SITE_DOMAIN` and the Discord fields blank, open port
+**80** (not 443) on the Lightsail firewall, and run with the compose override:
+
+```bash
+docker compose -f compose.yaml -f compose.minimal.yaml up -d --build app
+```
+
+`compose.minimal.yaml` maps the app to host port 80 and keeps Caddy off. At the
+full setup, drop the override file and let Caddy take over 80/443.
 
 ## 1. Create the instance
 
@@ -52,12 +58,12 @@ SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
 ## 4. Run
 
 ```bash
-docker compose up -d --build
+docker compose -f compose.yaml -f compose.minimal.yaml up -d --build app   # minimal, no domain
 docker compose logs -f app
 ```
 
-Caddy obtains a Let's Encrypt certificate automatically for `SITE_DOMAIN`.
-If it's a fresh domain, allow a minute for the cert; first visit may warn.
+(The full setup uses plain `docker compose up -d --build` once the domain is
+in place; Caddy then terminates HTTPS on 80/443.)
 
 ## 5. Onboard the first guild
 

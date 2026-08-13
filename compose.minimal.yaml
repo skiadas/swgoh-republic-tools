@@ -1,0 +1,8 @@
+# Minimal smoke-test override: no Caddy, reach the app directly on port 80.
+# Use ONLY for the no-domain first deploy:
+#   docker compose -f compose.yaml -f compose.minimal.yaml up -d --build app
+# Phase E (domain + TLS): drop this file and let Caddy take 80/443.
+services:
+  app:
+    ports:
+      - "80:8000"

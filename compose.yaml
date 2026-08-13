@@ -24,8 +24,6 @@ services:
       SWGOH_COOKIE_SECURE: "1"
     volumes:
       - data:/var/lib/swgoh-reviewer/data
-    ports:
-      - "${SWGOH_APP_PORT:-8000}:8000"
     expose:
       - "8000"
     depends_on:
