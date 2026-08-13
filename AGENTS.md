@@ -7,10 +7,14 @@ swgoh.gg scraping.
 
 ## Pipeline
 
+All logic lives in the `swgoh_reviewer/` package; the top-level `*.py`
+scripts are thin CLI wrappers. Data paths are env-driven (`SWGOH_DATA_ROOT`,
+`SWGOH_COMLINK` — see `swgoh_reviewer/config.py`).
+
 ```
 start_comlink.sh            run swgoh-comlink (Docker) once
-fetch_guild.py <allycode>   download full rosters for a player's whole guild
-guild_summary.py <guild_id> build one compact summary JSON per guild
+fetch_guild.py <allycode>   fetch a guild and write its summary, streaming
+guild_summary.py <guild_id> rebuild a summary from existing raw rosters (dev)
 squad_report.py <guild_id>  evaluate squads.json requirements vs the summary
 render_report.py <guild_id> emit a self-contained HTML dashboard of the report
 rote.py [<tb_id>]           document a Territory Battle (default ROTE t05D)
@@ -18,10 +22,15 @@ rote_ops.py <planet>        plan a planet's op fills against the guild roster
 rote_calc.py                interactive ROTE day-by-day star calculator page
 ```
 
+`fetch_guild.py` streams: each member roster is fetched, reduced to its summary
+entry, and the raw payload is discarded — no `data/<allyCode>.json` raw rosters
+are persisted (was ~330MB/guild). The guild manifest carries `memberLevel`
+roles; the raw `.guild.json` response is not kept.
+
 ## Setup / running
 
 - Everything runs with `uv run python <script>` (Python 3.10+; deps in
-  `pyproject.toml`, locked by `uv.lock`).
+  `pyproject.toml`, locked by `uv.lock`). Tests: `uv run pytest`.
 - The only network dependency is `swgoh-comlink`, started via
   `./start_comlink.sh` (Docker, listens on `http://localhost:3200`). Most
   scripts are offline; only first-time game-data cache builds contact it.
@@ -30,15 +39,17 @@ rote_calc.py                interactive ROTE day-by-day star calculator page
 
 ## Data layout (`data/`)
 
-- `data/<allyCode>.json` — one full player roster per member.
+- `data/<allyCode>.json` — full player rosters kept only by `guild_summary.py`
+  (offline rebuild); `fetch_guild.py` no longer writes these.
 - `data/names.json` — `baseId -> display name` cache for all units.
 - `data/game/` — compact game-data caches built from comlink:
-  `units.json`, `skills.json`, `categories.json`, `localization.json`.
-- `data/guilds/<guildId>.json` — guild manifest (member list, GP, statuses).
-- `data/guilds/<guildId>.guild.json` — raw guild response.
+  `units.json`, `categories.json`, `localization.json` (skills.json was dropped —
+  nothing reads ability/zeta/omicron data anymore).
+- `data/guilds/<guildId>.json` — guild manifest (member list, GP, statuses,
+  `memberLevel` roles).
 - `data/guilds/<guildId>.summary.json` — compact per-member roster summary
-  (units: name, baseId, combatType, gearLevel, relicLevel, factions, leader;
-  abilities with zeta/omicron flags).
+  (units: name, baseId, combatType, gearLevel, relicLevel, rarity, factions,
+  leader). Written compactly (~3.6MB vs the old ~25MB).
 - `data/guilds/<guildId>.squads.json` — squad report (`bySquad` + `byPlayer`).
 - `data/guilds/<guildId>.squads.html` — generated dashboard.
 - `data/swgoh-gg-ops*.html` — manually saved swgoh.gg "Territory Battle Platoons"
@@ -54,7 +65,9 @@ rote_calc.py                interactive ROTE day-by-day star calculator page
   member assignments.
 - `data/rote/calculator.html` — interactive day-by-day star calculator
   (`rote_calc.py`), a self-contained HTML page. Full model below.
-- `data/rote/*.json` — raw comlink collections cached for offline re-runs.
+- `data/rote/*.json` — raw comlink collections cached for offline re-runs, but
+  only the target TB's slice of `campaign` (91MB -> ~0.7MB) and
+  `territoryBattleDefinition` are kept.
 
 ## ROTE star calculator (`rote_calc.py`)
 
@@ -203,20 +216,23 @@ dark/neutral/light/specials order. Sanity reference (jsdom-verified): 100% CM
 - `fetch_guild.py --refresh` re-downloads players (default: skips existing).
 - `fetch_guild.py --limit N` for a small test batch; `--max-rps` (default 4)
   throttles to stay under EA's caps (~20 req/s total, ~100 for /player).
-- `guild_summary.py --refresh-game` and `squad_report.py --refresh-game`
+- `fetch_guild.py --refresh-game` and `guild_summary.py --refresh-game`
   rebuild `data/game/` caches after a game update. The report scripts only
   need comlink for this; otherwise fully offline.
 
 ## Verification patterns
 
-- Compile-check: `uv run python -m py_compile *.py`.
+- Compile-check: `uv run python -m py_compile *.py swgoh_reviewer/*.py`.
+- Unit tests: `uv run pytest` (pipeline: summary pruning, role passthrough,
+  compact writers — no comlink or live data needed).
 - Report sanity: `uv run python squad_report.py <guild_id> --player <allycode>`.
 - If the HTML looks wrong, it's usually the inline JS: the page is a **Jinja2**
-  template (`render_report.py` `HTML_TEMPLATE`, rendered via `Environment` at
-  the bottom of `main()`) with data inlined as `const DATA = {...}`. Verify JS
-  with `node --check` on the second `<script>` block, or render in jsdom and
-  inspect each tab (matrix rows = players+2, cells = players×squads). Keep JS
-  braces single in the template (Jinja2's `{{ ... }}` are the only doubles).
+  template (`swgoh_reviewer/calc.py` `HTML_TEMPLATE`, rendered via
+  `Environment` at the bottom of `main()`) with data inlined as
+  `const DATA = {...}`. Verify JS with `node --check` on the second
+  `<script>` block, or render in jsdom and inspect each tab (matrix rows =
+  players+2, cells = players×squads). Keep JS braces single in the template
+  (Jinja2's `{{ ... }}` are the only doubles).
 
 ## Gotchas
 
