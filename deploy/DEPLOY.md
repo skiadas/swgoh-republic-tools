@@ -3,6 +3,12 @@
 Single $7/mo Lightsail Linux VM runs the whole service in Docker Compose:
 swgoh-comlink (EA gateway), the FastAPI app, and Caddy (HTTPS).
 
+Two paths: a **minimal smoke test** (admin token only, no domain, direct
+`http://<ip>:8000`) or the **full setup** (domain + Discord login + Caddy
+TLS). Both use the same compose file; for minimal, leave `SITE_DOMAIN` and the
+Discord fields blank and open port 8000 on the Lightsail firewall instead of
+80/443.
+
 ## 1. Create the instance
 
 - Lightsail → Create instance → Linux/Unix → **Ubuntu 24.04 LTS**, $7 bundle
@@ -20,7 +26,7 @@ sudo usermod -aG docker ubuntu   # re-login or use sudo docker ...
 ## 3. Get the code and configure
 
 ```bash
-git clone https://<your-repo> swgoh-reviewer
+git clone https://github.com/skiadas/swgoh-republic-tools.git swgoh-reviewer
 cd swgoh-reviewer
 cp .env.example .env
 $EDITOR .env      # set secrets (see below)
