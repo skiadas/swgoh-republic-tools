@@ -207,7 +207,9 @@ def create_app(outdir=None, db_path=None, comlink=None):
 
     @app.get("/healthz")
     def healthz():
-        return {"ok": True}
+        from swgoh_reviewer import __version__
+
+        return {"ok": True, "version": __version__}
 
     @app.get("/g/{guild_id}", response_class=HTMLResponse)
     def guild_page(guild_id: str, request: Request):

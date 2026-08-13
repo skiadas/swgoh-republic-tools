@@ -31,6 +31,8 @@ sudo usermod -aG docker ubuntu   # re-login or use sudo docker ...
 
 ## 3. Get the code and configure
 
+The repo and its container image are public — no GitHub or registry login.
+
 ```bash
 git clone https://github.com/skiadas/swgoh-republic-tools.git swgoh-reviewer
 cd swgoh-reviewer
@@ -45,6 +47,7 @@ SWGOH_ADMIN_TOKEN=<long random string>
 SWGOH_APP_SECRET=<long random string>
 SWGOH_ADMIN_DISCORD_ID=<your discord user id>
 SITE_DOMAIN=reviewer.example.com
+SWGOH_IMAGE_TAG=latest
 SWGOH_DISCORD_CLIENT_ID=
 SWGOH_DISCORD_CLIENT_SECRET=
 SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
@@ -54,16 +57,19 @@ SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
   add `SWGOH_DISCORD_REDIRECT` as a redirect URL. Only the `identify` scope is
   used; no bot is needed. Leave the Discord fields blank to run without login.
 - DNS: add an A record for `SITE_DOMAIN` pointing at the static IP.
+- `SWGOH_IMAGE_TAG` picks which container image to run (default `latest`);
+  set it to a git sha or a `v*` tag to pin/roll back (see "Versioning").
 
 ## 4. Run
 
 ```bash
-docker compose -f compose.yaml -f compose.minimal.yaml up -d --build app   # minimal, no domain
+docker compose -f compose.yaml -f compose.minimal.yaml up -d app   # minimal, no domain; pulls the GHCR image
 docker compose logs -f app
 ```
 
-(The full setup uses plain `docker compose up -d --build` once the domain is
-in place; Caddy then terminates HTTPS on 80/443.)
+(The full setup uses plain `docker compose up -d` once the domain is
+in place; Caddy then terminates HTTPS on 80/443. No `--build` on the box —
+the image is built in CI and pulled from `ghcr.io/skiadas/swgoh-republic-tools`.)
 
 ## 5. Onboard the first guild
 
@@ -87,11 +93,24 @@ docker run --rm -v swgoh-reviewer_data:/data -v $PWD:/backup alpine \
 
 Keep ~7 of these; copy off-instance if you want off-box redundancy.
 
+## Versioning & rollback
+
+- Every push to `main` builds `ghcr.io/skiadas/swgoh-republic-tools:<sha>`
+  and updates `:latest`. A `v*` git tag (e.g. `git tag v1.0.0 && git push --tags`)
+  also pushes a `<tag>` image.
+- The box runs `:latest` by default. To pin or roll back, set
+  `SWGOH_IMAGE_TAG` in `.env` to a git sha or tag and restart:
+  ```bash
+  SWGOH_IMAGE_TAG=<sha-or-tag> docker compose -f compose.yaml -f compose.minimal.yaml up -d app
+  ```
+- The app reports its version at `GET /healthz`.
+
 ## Upgrading
 
 ```bash
-git pull && docker compose up -d --build
+git pull && docker compose -f compose.yaml -f compose.minimal.yaml up -d app   # pulls the new image
 ```
+(Use the full compose command without the minimal override once the domain is set.)
 
 ## Notes / limits
 

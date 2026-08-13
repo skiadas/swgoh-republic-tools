@@ -1,0 +1,6 @@
+# Local development override: build the app image from source instead of
+# pulling from GHCR. Use with:
+#   docker compose -f compose.yaml -f compose.local.yaml up --build app
+services:
+  app:
+    build: .
