@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""Environment-driven configuration for the SWGOH reviewer.
+
+All paths and endpoints are overridable via env vars so the same code runs
+locally, in tests, and in the hosted service:
+    SWGOH_DATA_ROOT   data directory (default: <project>/data)
+    SWGOH_COMLINK     swgoh-comlink base URL (default: http://localhost:3200)
+"""
+
+import os
+from pathlib import Path
+
+PROJECT = Path(__file__).resolve().parent.parent
+
+
+def data_root() -> Path:
+    return Path(os.environ.get("SWGOH_DATA_ROOT", PROJECT / "data"))
+
+
+def comlink_url() -> str:
+    return os.environ.get("SWGOH_COMLINK", "http://localhost:3200")

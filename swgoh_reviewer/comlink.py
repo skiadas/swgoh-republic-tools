@@ -6,7 +6,9 @@ import time
 
 from swgoh_comlink import SwgohComlink
 
-DEFAULT_COMLINK = "http://localhost:3200"
+from swgoh_reviewer.config import comlink_url
+
+DEFAULT_COMLINK = comlink_url()
 NAME_CACHE = "names.json"
 
 STAT_NAMES = {
