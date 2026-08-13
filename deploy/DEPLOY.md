@@ -73,11 +73,10 @@ the image is built in CI and pulled from `ghcr.io/skiadas/swgoh-republic-tools`.
 
 ## 5. Onboard the first guild
 
-```bash
-# from the app container's data root:
-curl -s -X POST "https://reviewer.example.com/admin/guilds?guild_id=<guildId>&token=$SWGOH_ADMIN_TOKEN"
-# or use the web admin UI at /admin
-```
+Sign in at `https://reviewer.example.com/admin/login` with the admin token
+(24h session cookie), then use the admin page to register the guild (guild id
+or any member's ally code). The admin token is only ever submitted via that
+login form — it is never put in a URL.
 
 ## 6. Nightly refresh & backups
 

@@ -14,6 +14,7 @@ import json
 import os
 import re
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -38,11 +39,22 @@ def admin_enabled():
     return bool(admin_token())
 
 
-def check_admin(token: str = Query(default="")):
+def is_admin(request):
+    """Admin via the signed admin cookie, or the configured Discord admin user."""
+    if not admin_enabled():
+        return False
+    if auth.read_admin(request.cookies.get(auth.ADMIN_COOKIE)):
+        return True
+    session = auth.read_session(request.cookies.get(auth.SESSION_COOKIE))
+    return bool(session) and auth.is_admin_user(session)
+
+
+def require_admin(request: Request):
+    """Dependency for admin API routes: raise 401 unless an admin session exists."""
     if not admin_enabled():
         raise HTTPException(503, "SWGOH_ADMIN_TOKEN not configured")
-    if not token or not hmac.compare_digest(token, admin_token()):
-        raise HTTPException(401, "invalid admin token")
+    if not is_admin(request):
+        raise HTTPException(401, "admin session required")
     return True
 
 
@@ -128,15 +140,12 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return auth.roles_for(db, outdir, session.get("discord_id"))
 
     def require_guild_role(guild_id: str, request: Request):
-        """Allow if the admin token is present, the viewer is the configured
-        admin, or they are an officer/leader of the guild per the roster."""
-        token = request.query_params.get("token", "")
-        if token and hmac.compare_digest(token, admin_token()):
+        """Allow if an admin session exists, or the viewer is an officer/leader
+        of the guild per the roster."""
+        if is_admin(request):
             return
         session = session_user(request)
-        if auth.is_admin_user(session):
-            return
-        roles = auth.roles_for(db, outdir, (session or {}).get("discord_id")) if session else {}
+        roles = auth.roles_for(db, outdir, session.get("discord_id")) if session else {}
         if not auth.is_officer(roles, guild_id):
             raise HTTPException(403, "officer role required for this guild")
         return
@@ -287,8 +296,48 @@ def create_app(outdir=None, db_path=None, comlink=None):
 
     # ---------------- admin ----------------
 
+    @app.get("/admin/login", response_class=HTMLResponse)
+    def admin_login_page(request: Request):
+        if is_admin(request):
+            return RedirectResponse("/admin", status_code=302)
+        body = (
+            "<p>Enter the admin token (set via SWGOH_ADMIN_TOKEN). Your session lasts 24h.</p>"
+            '<form method="post" action="/admin/login">'
+            '<label>Token: <input type="password" name="token" autofocus autocomplete="current-password"></label> '
+            "<button>Sign in</button></form>"
+        )
+        return _page("Admin login — SWGOH reviewer", body)
+
+    @app.post("/admin/login")
+    async def admin_login(request: Request):
+        if not admin_enabled():
+            raise HTTPException(503, "SWGOH_ADMIN_TOKEN not configured")
+        form = await request.form()
+        token = str(form.get("token") or "")
+        if not token or not hmac.compare_digest(token, admin_token()):
+            time.sleep(0.5)
+            raise HTTPException(401, "invalid admin token")
+        resp = RedirectResponse("/admin", status_code=302)
+        resp.set_cookie(
+            auth.ADMIN_COOKIE,
+            auth.sign_admin(),
+            max_age=auth.ADMIN_TTL,
+            httponly=True,
+            samesite="lax",
+            secure=os.environ.get("SWGOH_COOKIE_SECURE", "0") == "1",
+        )
+        return resp
+
+    @app.get("/admin/logout")
+    def admin_logout():
+        resp = RedirectResponse("/", status_code=302)
+        resp.delete_cookie(auth.ADMIN_COOKIE)
+        return resp
+
     @app.get("/admin", response_class=HTMLResponse)
-    def admin_page(_ok: bool = Depends(check_admin)):
+    def admin_page(request: Request):
+        if not is_admin(request):
+            return RedirectResponse("/admin/login", status_code=302)
         rows = "".join(
             f"<tr><td>{_esc(g['id'])}</td><td>{_esc(g['name'] or '—')}</td>"
             f"<td>{_esc(g['tb_id'])}</td><td>{'yes' if g['enabled'] else 'no'}</td>"
@@ -319,17 +368,20 @@ def create_app(outdir=None, db_path=None, comlink=None):
 <table><tr><th>id</th><th>name</th><th>tb</th><th>enabled</th><th>last refresh</th><th></th></tr>""" + rows + "</table>"
         if links:
             body += "<h2>Discord links</h2><table><tr><th>discord id</th><th>allycode</th><th>linked by</th></tr>" + links + "</table>"
+        body += '<p><a href="/admin/logout">Sign out</a></p>'
         return _page("Admin — SWGOH reviewer", body)
 
     @app.post("/admin/links")
-    def create_link(discord_id: str = Query(default=""), allycode: str = Query(default=""), _ok: bool = Depends(check_admin)):
+    def create_link(discord_id: str = Query(default=""), allycode: str = Query(default=""), _ok: bool = Depends(require_admin)):
         if not discord_id or not allycode:
             raise HTTPException(400, "need discord_id and allycode")
         db.set_discord_link(discord_id.strip(), allycode.strip())
         return {"discord_id": discord_id, "allycode": allycode, "status": "ok"}
 
     @app.get("/admin/g/{guild_id}", response_class=HTMLResponse)
-    def admin_guild(guild_id: str, _ok: bool = Depends(check_admin)):
+    def admin_guild(guild_id: str, request: Request):
+        if not is_admin(request):
+            return RedirectResponse("/admin/login", status_code=302)
         g = require_guild(guild_id)
         body = f"""
 <div class="card"><b>{_esc(g['id'])}</b> — {_esc(g['name'] or '—')}<br>
@@ -351,7 +403,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         allycode: str = Query(default=""),
         name: str = Query(default=""),
         tb_id: str = Query(default="t05D"),
-        _ok: bool = Depends(check_admin),
+        _ok: bool = Depends(require_admin),
     ):
         if not guild_id and not allycode:
             raise HTTPException(400, "need guild_id or allycode")
@@ -377,7 +429,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return {"guildId": guild_id, "status": "ok"}
 
     @app.post("/admin/guilds/{guild_id}/refresh")
-    def refresh_guild(guild_id: str, _ok: bool = Depends(check_admin)):
+    def refresh_guild(guild_id: str, _ok: bool = Depends(require_admin)):
         require_guild(guild_id)
         try:
             return runner.refresh_guild(guild_id, comlink)
@@ -385,7 +437,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
             raise HTTPException(502, str(exc)) from exc
 
     @app.post("/admin/guilds/{guild_id}/regen")
-    def regen_guild(guild_id: str, _ok: bool = Depends(check_admin)):
+    def regen_guild(guild_id: str, _ok: bool = Depends(require_admin)):
         g = require_guild(guild_id)
         try:
             return runner.regen(guild_id, tb_id=g["tb_id"] or "t05D", squads_json=g.get("squads_json"))
@@ -397,14 +449,14 @@ def create_app(outdir=None, db_path=None, comlink=None):
         guild_id: str,
         tb_id: str = Query(default=""),
         enabled: str = Query(default=""),
-        _ok: bool = Depends(check_admin),
+        _ok: bool = Depends(require_admin),
     ):
         require_guild(guild_id)
         db.upsert_guild(guild_id, tb_id=tb_id or None, enabled=(1 if enabled == "1" else 0))
         return {"guildId": guild_id, "status": "ok"}
 
     @app.post("/admin/refresh")
-    def refresh_all(_ok: bool = Depends(check_admin)):
+    def refresh_all(_ok: bool = Depends(require_admin)):
         return {"results": runner.refresh_all(comlink)}
 
     return app

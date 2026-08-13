@@ -88,19 +88,46 @@ def test_bad_guild_id_rejected(tmp_path):
     assert r.status_code in (400, 404)  # either a 400 from our guard or Starlette rejecting the traversal
 
 
-def test_admin_requires_token(tmp_path):
+def test_admin_login_flow(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
-    assert client.get("/admin").status_code == 401
-    assert client.get("/admin", params={"token": "wrong"}).status_code == 401
-    assert client.get("/admin", params={"token": "secret"}).status_code == 200
+    # unauthenticated /admin redirects to login
+    r = client.get("/admin", follow_redirects=False)
+    assert r.status_code == 302 and "/admin/login" in r.headers["location"]
+    # login page renders
+    assert client.get("/admin/login").status_code == 200
+    # wrong token rejected, no cookie set
+    assert client.post("/admin/login", data={"token": "wrong"}).status_code == 401
+    assert "swgoh_admin" not in client.cookies
+    # correct token sets the cookie and /admin works
+    r = client.post("/admin/login", data={"token": "secret"}, follow_redirects=False)
+    assert r.status_code == 302
+    assert client.get("/admin").status_code == 200
+
+
+def test_admin_query_param_no_longer_works(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    # the old ?token= URL must not authenticate
+    r = client.get("/admin", params={"token": "secret"}, follow_redirects=False)
+    assert r.status_code == 302 and "/admin/login" in r.headers["location"]
+
+
+def test_admin_logout(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    client.post("/admin/login", data={"token": "secret"})
+    assert client.get("/admin").status_code == 200
+    client.get("/admin/logout")
+    assert client.get("/admin", follow_redirects=False).status_code == 302
 
 
 def test_settings_update(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
     register_guild(client, tmp_path)
-    r = client.post("/admin/guilds/G1/settings", params={"token": "secret", "tb_id": "t06D", "enabled": "0"})
+    client.post("/admin/login", data={"token": "secret"})
+    r = client.post("/admin/guilds/G1/settings", params={"tb_id": "t06D", "enabled": "0"})
     assert r.status_code == 200
     g = client.app.state.db if hasattr(client.app.state, "db") else None
     # re-read via a fresh client connection
@@ -183,6 +210,7 @@ def test_officer_squads_invalid_json(tmp_path):
 def test_admin_link_create(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
-    r = client.post("/admin/links", params={"token": "secret", "discord_id": "d9", "allycode": "999"})
+    client.post("/admin/login", data={"token": "secret"})
+    r = client.post("/admin/links", params={"discord_id": "d9", "allycode": "999"})
     assert r.status_code == 200
     assert client.app.state.db.get_discord_link("d9")["allycode"] == "999"

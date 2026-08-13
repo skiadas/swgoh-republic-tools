@@ -23,6 +23,9 @@ from swgoh_reviewer.config import data_root
 
 SESSION_COOKIE = "swgoh_session"
 SESSION_SALT = "swgoh-session-v1"
+ADMIN_COOKIE = "swgoh_admin"
+ADMIN_SALT = "swgoh-admin-v1"
+ADMIN_TTL = 60 * 60 * 24  # 24h admin session
 
 # SWGOH memberLevel -> role. 1 = unknown/other, 2 = member, 3 = officer,
 # 4 = leader (leaders unique per guild).
@@ -43,6 +46,29 @@ def signer():
 
 def sign_session(data):
     return signer().sign(json.dumps(data)).decode()
+
+
+def _admin_signer():
+    secret = app_secret()
+    if not secret:
+        secret = os.environ.setdefault("_SWGOH_DEV_SECRET", os.urandom(32).hex())
+    return TimestampSigner(secret, salt=ADMIN_SALT)
+
+
+def sign_admin():
+    """Sign a fresh admin-session cookie value (no secrets inside, just a claim)."""
+    return _admin_signer().sign(json.dumps({"admin": True})).decode()
+
+
+def read_admin(cookie):
+    """True iff the cookie is a valid, unexpired admin session."""
+    if not cookie:
+        return False
+    try:
+        _admin_signer().unsign(cookie, max_age=ADMIN_TTL)
+        return True
+    except (BadSignature, SignatureExpired, ValueError):
+        return False
 
 
 def read_session(cookie):

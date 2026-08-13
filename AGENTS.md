@@ -246,12 +246,13 @@ Layout: `server/db.py` (SQLite: guild registry incl. per-guild `tb_id`/
 lock), `server/auth.py` (Discord OAuth + signed cookies + roster-derived
 roles), `server/app.py` (routes). Read access is open for registered guilds at
 `/g/<id>/{report,calc}`; `/g/<id>/{squads,settings}` require an officer/leader
-roster role (or admin); `/admin*` is gated by `SWGOH_ADMIN_TOKEN`. Discord
-links (`discord_id → allycode`) are created by an admin; roles come from the
-guild manifest's `memberLevel` (2=member, 3=officer, 4=leader). Per-guild
-custom `squads_json` is materialized to `data/guilds/<id>.squads-config.json`
-and passed to `squad_report`. Tests: `tests/test_server.py` (TestClient, no
-comlink).
+roster role (or admin); `/admin*` is gated by a signed 24h admin session
+cookie obtained at `/admin/login` (token in the POST body, never a URL).
+Discord links (`discord_id → allycode`) are created by an admin; roles come
+from the guild manifest's `memberLevel` (2=member, 3=officer, 4=leader).
+Per-guild custom `squads_json` is materialized to
+`data/guilds/<id>.squads-config.json` and passed to `squad_report`.
+Tests: `tests/test_server.py` (TestClient, no comlink).
 
 ## Verification patterns
 
