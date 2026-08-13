@@ -7,6 +7,8 @@ dependencies = [
     "swgoh-comlink>=2.3.0",
     "jsonschema>=4.0",
     "jinja2>=3.1",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
 ]
 
 [tool.uv]
