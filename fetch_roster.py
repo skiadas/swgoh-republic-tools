@@ -14,20 +14,21 @@ from pathlib import Path
 
 from swgoh_comlink import SwgohComlink
 
-from swgohdata import (
+from swgoh_reviewer.comlink import (
     DEFAULT_COMLINK,
     build_name_map,
     fetch_player,
     retry,
     summarize,
 )
+from swgoh_reviewer.config import data_root
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("allycodes", nargs="+", type=str, help="player ally codes")
     parser.add_argument("--comlink", default=DEFAULT_COMLINK, help="swgoh-comlink base URL")
-    parser.add_argument("--outdir", default=str(Path(__file__).resolve().parent / "data"), help="output directory")
+    parser.add_argument("--outdir", default=str(data_root()), help="output directory")
     parser.add_argument("--refresh-names", action="store_true", help="rebuild the defId->name cache")
     args = parser.parse_args(argv)
 
