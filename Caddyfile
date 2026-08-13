@@ -1,0 +1,9 @@
+{
+	# Set SITE_DOMAIN in .env (compose passes it in). Localhost serves HTTP.
+	admin off
+}
+
+{$SITE_DOMAIN} {
+	encode gzip
+	reverse_proxy app:8000
+}

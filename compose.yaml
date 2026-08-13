@@ -1,0 +1,50 @@
+services:
+  comlink:
+    image: ghcr.io/swgoh-utils/swgoh-comlink:latest
+    restart: always
+    environment:
+      APP_NAME: swgoh-reviewer
+    expose:
+      - "3000"
+
+  app:
+    build: .
+    restart: always
+    environment:
+      SWGOH_DATA_ROOT: /var/lib/swgoh-reviewer/data
+      SWGOH_COMLINK: http://comlink:3000
+      SWGOH_ADMIN_TOKEN: ${SWGOH_ADMIN_TOKEN:?set SWGOH_ADMIN_TOKEN in .env}
+      SWGOH_APP_SECRET: ${SWGOH_APP_SECRET:?set SWGOH_APP_SECRET in .env}
+      SWGOH_NIGHTLY: ${SWGOH_NIGHTLY:-1}
+      SWGOH_REFRESH_HOUR: ${SWGOH_REFRESH_HOUR:-4}
+      SWGOH_DISCORD_CLIENT_ID: ${SWGOH_DISCORD_CLIENT_ID:-}
+      SWGOH_DISCORD_CLIENT_SECRET: ${SWGOH_DISCORD_CLIENT_SECRET:-}
+      SWGOH_DISCORD_REDIRECT: ${SWGOH_DISCORD_REDIRECT:-}
+      SWGOH_ADMIN_DISCORD_ID: ${SWGOH_ADMIN_DISCORD_ID:-}
+      SWGOH_COOKIE_SECURE: "1"
+    volumes:
+      - data:/var/lib/swgoh-reviewer/data
+    expose:
+      - "8000"
+    depends_on:
+      - comlink
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  data: {}
+  caddy_data: {}
+  caddy_config: {}

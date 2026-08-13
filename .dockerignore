@@ -1,0 +1,9 @@
+.git
+data
+.venv
+__pycache__
+*.pyc
+.DS_Store
+tests
+deploy
+*.html
