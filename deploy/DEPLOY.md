@@ -106,15 +106,56 @@ Keep ~7 of these; copy off-instance if you want off-box redundancy.
 
 ## Upgrading
 
+Compose ships with **Watchtower** (scoped via label to the `app` service only),
+so the app self-updates within ~5 minutes of a new image being pushed to
+`main`. A ~2–5s restart blip is expected; the `data` volume is untouched.
+
 ```bash
-git pull && docker compose -f compose.yaml -f compose.minimal.yaml up -d app   # pulls the new image
+# if you ever need to force it, or after a compose file change:
+docker compose -f compose.yaml -f compose.minimal.yaml pull app
+docker compose -f compose.yaml -f compose.minimal.yaml up -d app
 ```
 (Use the full compose command without the minimal override once the domain is set.)
+
+Compose/config changes are **not** pushed to the box automatically — after a
+compose change, re-fetch the file (fetch-only setup):
+
+```bash
+curl -fsSL -o compose.yaml https://raw.githubusercontent.com/skiadas/swgoh-republic-tools/main/compose.yaml
+docker compose -f compose.yaml -f compose.minimal.yaml up -d
+```
+
+## Memory & swap
+
+On the $7 box (1GB RAM) we recommend a 2GB swapfile so the OOM killer stays
+away during nightlies, and the compose services carry hard memory limits
+(RAM + swap ceiling so a container can spill into swap):
+
+| service | mem_limit | memswap_limit |
+|---|---|---|
+| app | 512m | 1g |
+| comlink | 384m | 768m |
+| caddy | 128m | 256m |
+| watchtower | 128m | 256m |
+
+```bash
+# swap setup (once)
+sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/90-swappiness.conf && sudo sysctl vm.swappiness=10
+```
+
+Note: `mem_limit` without `memswap_limit` would disable swap for that
+container; both are set so transient spikes spill into the host swap.
 
 ## Notes / limits
 
 - EA rate limits: refresh is throttled to 4 req/s and runs one guild at a time;
   a 50-member guild takes ~30–60s. With many guilds the nightly pass spreads
   out automatically because it runs sequentially.
+- The nightly refresh runs on a thread inside the app and does not
+  meaningfully affect page serving; all artifact writes are atomic
+  (temp-file + `os.replace`), so readers never see a partial file.
 - The app is stateless except the `data` volume (JSON payloads + `service.db`).
   Snapshots of that volume are the only backup you need.

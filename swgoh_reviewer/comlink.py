@@ -7,6 +7,7 @@ import time
 from swgoh_comlink import SwgohComlink
 
 from swgoh_reviewer.config import comlink_url
+from swgoh_reviewer.io import atomic_write_text
 
 DEFAULT_COMLINK = comlink_url()
 NAME_CACHE = "names.json"
@@ -88,7 +89,7 @@ def build_name_map(comlink, outdir, use_cache=True):
         name_map[base_id] = entries.get(name_key, base_id) if name_key else base_id
 
     outdir.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps(name_map, indent=2, ensure_ascii=False))
+    atomic_write_text(cache_path, json.dumps(name_map, indent=2, ensure_ascii=False))
     return name_map
 
 
@@ -129,7 +130,7 @@ def fetch_player(comlink, allycode=None, player_id=None, name_map=None, outdir=N
         outdir.mkdir(parents=True, exist_ok=True)
         key = data.get("allyCode") or player_id
         outpath = outdir / f"{key}.json"
-        outpath.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        atomic_write_text(outpath, json.dumps(data, indent=2, ensure_ascii=False))
         return data, outpath
     return data
 

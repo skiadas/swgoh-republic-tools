@@ -24,6 +24,7 @@ from swgoh_reviewer.comlink import (
     relic_level,
     retry,
 )
+from swgoh_reviewer.io import atomic_write_text
 from swgoh_reviewer import gamecache
 
 
@@ -102,7 +103,7 @@ def get_guild_members(comlink, guild_id):
 
 def write_json(path, obj, pretty=False):
     text = json.dumps(obj, indent=2 if pretty else None, separators=None if pretty else (",", ":"), ensure_ascii=False)
-    path.write_text(text)
+    atomic_write_text(path, text)
 
 
 def refresh_guild(

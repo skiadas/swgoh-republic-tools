@@ -90,6 +90,15 @@ def test_write_json_compact_vs_pretty(tmp_path):
     assert "\n  " in pretty.read_text()
 
 
+def test_atomic_write_text(tmp_path):
+    from swgoh_reviewer.io import atomic_write_text
+
+    p = tmp_path / "a.json"
+    atomic_write_text(p, '{"a":1}')
+    assert p.read_text() == '{"a":1}'
+    assert not list(tmp_path.glob("*.tmp"))  # no temp files left behind
+
+
 def test_summarize_from_files(tmp_path):
     gid = "G1"
     guild_dir = tmp_path / "guilds"

@@ -254,6 +254,13 @@ Per-guild custom `squads_json` is materialized to
 `data/guilds/<id>.squads-config.json` and passed to `squad_report`.
 Tests: `tests/test_server.py` (TestClient, no comlink).
 
+All artifact writes (summaries, reports, HTML pages, caches) go through
+`swgoh_reviewer/io.py:atomic_write_text` (temp file + `os.replace`), so a
+reader during a nightly regenerate never sees a partial file. `compose.yaml`
+runs a `watchtower` service (scoped to the `app` label) that self-updates the
+app image, and hard memory limits (`mem_limit` + `memswap_limit`) on every
+service — see `deploy/DEPLOY.md`.
+
 ## Verification patterns
 
 - Compile-check: `uv run python -m py_compile *.py swgoh_reviewer/*.py`.

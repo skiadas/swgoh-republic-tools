@@ -13,6 +13,7 @@ from pathlib import Path
 
 from swgoh_reviewer import calc, dashboard, pipeline, squads
 from swgoh_reviewer.config import data_root
+from swgoh_reviewer.io import atomic_write_text
 
 
 class JobError(RuntimeError):
@@ -40,7 +41,7 @@ class JobRunner:
             return None
         p = self.outdir / "guilds" / f"{guild_id}.squads-config.json"
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(squads_json)
+        atomic_write_text(p, squads_json)
         return p
 
     # ---- jobs ----

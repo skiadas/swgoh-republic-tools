@@ -35,6 +35,7 @@ from pathlib import Path
 from jinja2 import Environment
 
 from swgoh_reviewer.config import data_root
+from swgoh_reviewer.io import atomic_write_text
 
 DEFAULT_GUILD = "NW4t0-dBRcG8n-PVhykpKg"
 TB_ID = "t05D"
@@ -400,9 +401,8 @@ def main(argv=None):
     outdir = outdir / "rote"
     outdir.mkdir(parents=True, exist_ok=True)
     json_path = outdir / f"{slug}.ops.json"
-    json_path.write_text(json.dumps({"planet": planet["name"], "phase": phase_num, "report": report}, indent=2, ensure_ascii=False))
-    html_path = outdir / f"{slug}.ops.html"
-    html_path.write_text(render_html(planet, report, summary.get("guildName", args.guild_id), phase_num))
+    atomic_write_text(json_path, json.dumps({"planet": planet["name"], "phase": phase_num, "report": report}, indent=2, ensure_ascii=False))
+    atomic_write_text(html_path, render_html(planet, report, summary.get("guildName", args.guild_id), phase_num))
 
     print(console_report(planet, report, phase_num))
     print(f"\nwrote {json_path} and {html_path}")

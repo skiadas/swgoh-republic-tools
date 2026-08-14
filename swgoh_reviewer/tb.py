@@ -32,6 +32,7 @@ from swgoh_comlink import SwgohComlink
 
 from swgoh_reviewer.comlink import DEFAULT_COMLINK
 from swgoh_reviewer.config import data_root
+from swgoh_reviewer.io import atomic_write_text
 
 TB_ID = "t05D"
 TB_SLICED = {"campaign", "territoryBattleDefinition"}
@@ -198,7 +199,7 @@ def fetch_raw(outdir, tb_id, refresh):
                     if key in TB_SLICED:
                         rows = [x for x in rows if x.get("id") == tb_id]
                     cache[key] = rows
-                    (raw_dir / f"{key}.json").write_text(json.dumps(cache[key], separators=(",", ":"), ensure_ascii=False))
+                    atomic_write_text(raw_dir / f"{key}.json", json.dumps(cache[key], separators=(",", ":"), ensure_ascii=False))
     return (
         cache["territoryBattleDefinition"],
         cache["campaign"],
@@ -614,8 +615,8 @@ def main(argv=None):
     outdir.mkdir(parents=True, exist_ok=True)
     json_path = outdir / f"{args.tb_id}.json"
     md_path = outdir / f"{args.tb_id}.md"
-    json_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
-    md_path.write_text(write_markdown(doc))
+    atomic_write_text(json_path, json.dumps(doc, indent=2, ensure_ascii=False))
+    atomic_write_text(md_path, write_markdown(doc))
     print(f"wrote {json_path} ({json_path.stat().st_size / 1e6:.2f} MB)")
     print(f"wrote {md_path}")
     return 0

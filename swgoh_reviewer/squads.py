@@ -24,6 +24,7 @@ import jsonschema
 from jsonschema import validate
 
 from swgoh_reviewer.config import PROJECT, data_root
+from swgoh_reviewer.io import atomic_write_text
 
 DEFAULT_SQUADS = PROJECT / "squads.json"
 DEFAULT_SCHEMA = PROJECT / "squads.schema.json"
@@ -436,7 +437,7 @@ def main(argv=None):
 
     report = build_report(summary, squads, name_map)
     outpath = outdir / "guilds" / f"{args.guild_id}.squads.json"
-    outpath.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    atomic_write_text(outpath, json.dumps(report, indent=2, ensure_ascii=False))
 
     print(f"wrote {outpath} ({outpath.stat().st_size / 1e6:.2f} MB)")
     print()

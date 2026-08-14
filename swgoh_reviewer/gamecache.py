@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 from swgoh_reviewer.comlink import retry
+from swgoh_reviewer.io import atomic_write_text
 
 GAME_CACHE_DIR = "game"
 CACHE_NAMES = ("localization", "units", "categories")
@@ -66,7 +67,7 @@ def ensure_caches(comlink, outdir, refresh=False):
             raise RuntimeError(f"cache {name}.json is missing and no comlink was provided")
         data = retry(builder)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False))
+        atomic_write_text(path, json.dumps(data, separators=(",", ":"), ensure_ascii=False))
         return data
 
     return {

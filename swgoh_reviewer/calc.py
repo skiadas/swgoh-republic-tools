@@ -26,6 +26,7 @@ from pathlib import Path
 from jinja2 import Environment
 
 from swgoh_reviewer.config import data_root
+from swgoh_reviewer.io import atomic_write_text
 
 DEFAULT_GUILD = "NW4t0-dBRcG8n-PVhykpKg"
 TB_ID = "t05D"
@@ -1090,7 +1091,7 @@ def main(argv=None):
     )
     outpath = outdir / "guilds" / f"{args.guild_id}.calculator.html"
     outpath.parent.mkdir(parents=True, exist_ok=True)
-    outpath.write_text(html)
+    atomic_write_text(outpath, html)
     print(f"wrote {outpath}")
     return 0
 

@@ -6,10 +6,14 @@ services:
       APP_NAME: swgoh-reviewer
     expose:
       - "3000"
+    mem_limit: 384m
+    memswap_limit: 768m
 
   app:
     image: ghcr.io/skiadas/swgoh-republic-tools:${SWGOH_IMAGE_TAG:-latest}
     restart: always
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     environment:
       SWGOH_DATA_ROOT: /var/lib/swgoh-reviewer/data
       SWGOH_COMLINK: http://comlink:3000
@@ -28,6 +32,8 @@ services:
       - "8000"
     depends_on:
       - comlink
+    mem_limit: 512m
+    memswap_limit: 1g
 
   caddy:
     image: caddy:2-alpine
@@ -43,6 +49,17 @@ services:
       - caddy_config:/config
     depends_on:
       - app
+    mem_limit: 128m
+    memswap_limit: 256m
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 300 --label-enable --cleanup --stop-timeout 15
+    mem_limit: 128m
+    memswap_limit: 256m
 
 volumes:
   data: {}

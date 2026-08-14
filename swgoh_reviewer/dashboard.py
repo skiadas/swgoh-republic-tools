@@ -23,6 +23,7 @@ from pathlib import Path
 from jinja2 import Environment
 
 from swgoh_reviewer.config import data_root
+from swgoh_reviewer.io import atomic_write_text
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -756,7 +757,7 @@ def main(argv=None):
     )
 
     outpath = outdir / "guilds" / f"{args.guild_id}.squads.html"
-    outpath.write_text(html)
+    atomic_write_text(outpath, html)
     print(f"wrote {outpath} ({outpath.stat().st_size / 1e6:.2f} MB)")
     return 0
 
