@@ -6,10 +6,11 @@ services:
     restart: always
     environment:
       APP_NAME: swgoh-reviewer
+      NODE_OPTIONS: --max-old-space-size=512
     expose:
       - "3000"
-    mem_limit: 384m
-    memswap_limit: 768m
+    mem_limit: 768m
+    memswap_limit: 1g
 
   app:
     image: ghcr.io/skiadas/swgoh-republic-tools:${SWGOH_IMAGE_TAG:-latest}

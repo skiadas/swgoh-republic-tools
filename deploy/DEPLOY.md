@@ -182,7 +182,7 @@ away during nightlies, and the compose services carry hard memory limits
 | service | mem_limit | memswap_limit |
 |---|---|---|
 | app | 512m | 1g |
-| comlink | 384m | 768m |
+| comlink | 768m | 1g |
 | caddy | 128m | 256m |
 
 ```bash
