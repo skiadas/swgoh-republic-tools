@@ -1,3 +1,5 @@
+name: swgoh-reviewer
+
 services:
   comlink:
     image: ghcr.io/swgoh-utils/swgoh-comlink:latest
@@ -12,8 +14,6 @@ services:
   app:
     image: ghcr.io/skiadas/swgoh-republic-tools:${SWGOH_IMAGE_TAG:-latest}
     restart: always
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
     environment:
       SWGOH_DATA_ROOT: /var/lib/swgoh-reviewer/data
       SWGOH_COMLINK: http://comlink:3000
@@ -54,16 +54,22 @@ services:
     mem_limit: 128m
     memswap_limit: 256m
 
-  watchtower:
-    image: containrrr/watchtower:latest
+  diun:
+    image: crazymax/diun:latest
     restart: always
+    command: serve --config /srv/swgoh/diun.yml
     volumes:
+      - diun_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 300 --label-enable --cleanup --stop-timeout 15s
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - ${SWGOH_APP_DIR:-.}:/srv/swgoh:ro
+    environment:
+      TZ: UTC
     mem_limit: 128m
     memswap_limit: 256m
 
 volumes:
   data: {}
+  diun_data: {}
   caddy_data: {}
   caddy_config: {}

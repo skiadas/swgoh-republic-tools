@@ -33,13 +33,20 @@ sudo usermod -aG docker ubuntu   # re-login or use sudo docker ...
 ## 3. Get the code and configure
 
 The repo and its container image are public — no GitHub or registry login.
+Fetch only the files the box needs (no source code):
 
 ```bash
-git clone https://github.com/skiadas/swgoh-republic-tools.git swgoh-reviewer
-cd swgoh-reviewer
+mkdir -p ~/swgoh-reviewer && cd ~/swgoh-reviewer
+BASE=https://raw.githubusercontent.com/skiadas/swgoh-republic-tools/main
+for f in compose.yaml compose.minimal.yaml .env.example Caddyfile diun.yml diun-watch.yml; do
+  curl -fsSL -o "$f" "$BASE/$f"
+done
 cp .env.example .env
 $EDITOR .env      # set secrets (see below)
 ```
+
+Note: `~/swgoh-reviewer` becomes the compose project directory. Everything
+below assumes you run compose from there.
 
 `.env`:
 
@@ -49,6 +56,7 @@ SWGOH_APP_SECRET=<long random string>
 SWGOH_ADMIN_DISCORD_ID=<your discord user id>
 SITE_DOMAIN=reviewer.example.com
 SWGOH_IMAGE_TAG=latest
+SWGOH_APP_DIR=~/swgoh-reviewer   # optional; defaults to the project dir
 SWGOH_DISCORD_CLIENT_ID=
 SWGOH_DISCORD_CLIENT_SECRET=
 SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
@@ -60,6 +68,9 @@ SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
 - DNS: add an A record for `SITE_DOMAIN` pointing at the static IP.
 - `SWGOH_IMAGE_TAG` picks which container image to run (default `latest`);
   set it to a git sha or a `v*` tag to pin/roll back (see "Versioning").
+- `SWGOH_APP_DIR` is the host path Diun binds into itself to run
+  `docker compose`; it defaults to the project directory (`.`), so you only
+  set it if you run compose from somewhere else.
 
 ## 4. Run
 
@@ -102,29 +113,49 @@ Keep ~7 of these; copy off-instance if you want off-box redundancy.
 - The box runs `:latest` by default. To pin or roll back, set
   `SWGOH_IMAGE_TAG` in `.env` to a git sha or tag and restart:
   ```bash
-  SWGOH_IMAGE_TAG=<sha-or-tag> docker compose -f compose.yaml -f compose.minimal.yaml up -d app
+  SWGOH_IMAGE_TAG=<sha-or-tag> docker compose --profile web up -d app
   ```
 - The app reports its version at `GET /healthz`.
 
-## Upgrading
+## Upgrading (self-update via Diun)
 
-Compose ships with **Watchtower** (scoped via label to the `app` service only),
-so the app self-updates within ~5 minutes of a new image being pushed to
-`main`. A ~2–5s restart blip is expected; the `data` volume is untouched.
+The compose stack includes **Diun**, which watches `ghcr.io/skiadas/swgoh-republic-tools:latest`
+every 10 minutes (File provider — it polls the registry directly, no Docker
+daemon API involved) and, on an update, runs its **Script notifier** to pull
+the new image and recreate the app container:
 
 ```bash
-# if you ever need to force it, or after a compose file change:
-docker compose -f compose.yaml -f compose.minimal.yaml pull app
-docker compose -f compose.yaml -f compose.minimal.yaml up -d app
+docker compose pull app && docker compose up -d app
 ```
-(For the full setup, drop the minimal override and add `--profile web`.)
+
+That command runs inside the Diun container with the host Docker socket and
+`docker` CLI mounted, working in the project directory. A ~2–5s restart blip
+is expected; the `data` volume is untouched.
+
+```bash
+# verify Diun is healthy
+docker compose --profile web exec diun diun healthcheck
+docker compose --profile web logs diun --tail 20
+```
+
+> **Project name:** compose.yaml pins `name: swgoh-reviewer`. If the box's
+> existing stack was started before this pin existed (i.e. its project name
+> was the directory name), migrating requires a brief stop first:
+> ```bash
+> docker compose --profile web down          # uses the OLD project name
+> # ... fetch the updated files (step 3) ...
+> docker compose --profile web up -d
+> ```
+> `down` keeps volumes, so guild data survives.
 
 Compose/config changes are **not** pushed to the box automatically — after a
-compose change, re-fetch the file (fetch-only setup):
+compose change, re-fetch the file (fetch-only setup) and recreate:
 
 ```bash
-curl -fsSL -o compose.yaml https://raw.githubusercontent.com/skiadas/swgoh-republic-tools/main/compose.yaml
-docker compose -f compose.yaml -f compose.minimal.yaml up -d
+cd ~/swgoh-reviewer
+BASE=https://raw.githubusercontent.com/skiadas/swgoh-republic-tools/main
+curl -fsSL -o compose.yaml "$BASE/compose.yaml"
+docker compose --profile web up -d
 ```
 
 ## Memory & swap
@@ -138,7 +169,7 @@ away during nightlies, and the compose services carry hard memory limits
 | app | 512m | 1g |
 | comlink | 384m | 768m |
 | caddy | 128m | 256m |
-| watchtower | 128m | 256m |
+| diun | 128m | 256m |
 
 ```bash
 # swap setup (once)

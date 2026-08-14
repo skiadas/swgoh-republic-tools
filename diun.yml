@@ -1,0 +1,23 @@
+# Diun main config. Watches the app image (File provider) and, on an update,
+# runs the Script notifier, which pulls the new image and recreates the app
+# container via the mounted docker CLI + socket + this project directory.
+#
+# Mounted at /srv/swgoh/diun.yml inside the diun container (see compose.yaml).
+db:
+  path: /data/diun.db
+
+watch:
+  workers: 5
+  schedule: "*/10 * * * *"
+
+providers:
+  file:
+    filename: /srv/swgoh/diun-watch.yml
+
+notif:
+  script:
+    cmd: /bin/sh
+    args:
+      - -c
+      - "docker compose pull app && docker compose up -d app"
+    dir: /srv/swgoh
