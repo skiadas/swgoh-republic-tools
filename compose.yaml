@@ -59,7 +59,7 @@ services:
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 300 --label-enable --cleanup --stop-timeout 15
+    command: --interval 300 --label-enable --cleanup --stop-timeout 15s
     mem_limit: 128m
     memswap_limit: 256m
 
