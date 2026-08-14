@@ -194,6 +194,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     Guild GP <b id="guild-gp"></b> ·
     plan <select id="plan-select" onchange="selectPlan()"></select>
     <button onclick="openNewPlan()">New Plan</button>
+    <button id="share-btn" onclick="sharePlan()" title="Copy a link that opens this plan">Share</button>
     <button onclick="openOpt()">Optimize</button>
     &nbsp;&nbsp; total stars: <b id="total-stars">0</b>
     <label style="float:right" title="Show scores as e.g. 1.2B / 234.3M; tooltips keep exact values">
@@ -283,8 +284,9 @@ const DATA = {{ data_json }};
 (function () {
   "use strict";
   const data = DATA;
-  const LS_KEY = "roteCalcPlans";
-  const LS_CURRENT = "roteCalcCurrent";
+  const guildId = (location.pathname.match(new RegExp("^/g/([^/]+)/")) || [])[1] || "unknown";
+  const LS_KEY = "roteCalcPlans:" + guildId;
+  const LS_CURRENT = "roteCalcCurrent:" + guildId;
   const LS_COMPACT = "roteCalcCompact";
   const state = { deployPct: 100, unlockZeffo: false, unlockMandalore: false, days: {} };
   let compact = true;
@@ -328,6 +330,57 @@ const DATA = {{ data_json }};
       html += '<option value="' + esc(n) + '"' + (n === planName() ? " selected" : "") + ">" + esc(n) + "</option>";
     }
     return html + "</select>";
+  }
+
+  // ---- sharing a plan as a URL-encoded payload (no server storage) ----
+  function planJson() {
+    return JSON.stringify({
+      deployPct: state.deployPct,
+      unlockZeffo: state.unlockZeffo,
+      unlockMandalore: state.unlockMandalore,
+      days: state.days,
+    });
+  }
+  function encodePlan() {
+    const bytes = new TextEncoder().encode(planJson());
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+  }
+  function decodePlan(enc) {
+    try {
+      const b64 = String(enc).replace(/-/g, "+").replace(/_/g, "/");
+      const bin = atob(b64);
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch (e) { return null; }
+  }
+  window.sharePlan = function () {
+    persist();
+    const url = location.origin + location.pathname + "?plan=" + encodePlan();
+    const btn = document.getElementById("share-btn");
+    const flash = () => {
+      const old = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = old; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(flash, () => { window.prompt("Copy this plan link:", url); });
+    } else {
+      window.prompt("Copy this plan link:", url);
+    }
+  };
+  function loadSharedPlan() {
+    const enc = new URLSearchParams(location.search).get("plan");
+    const shared = enc ? decodePlan(enc) : null;
+    if (!shared) return false;
+    state.deployPct = shared.deployPct !== undefined ? shared.deployPct : 100;
+    state.unlockZeffo = !!shared.unlockZeffo;
+    state.unlockMandalore = !!shared.unlockMandalore;
+    state.days = shared.days || {};
+    try { localStorage.setItem(LS_CURRENT, "Shared"); } catch (e) { /* ignore */ }
+    persist();
+    return true;
   }
 
   const PLANET_ORDER = { dark: 0, neutral: 1, light: 2, zeffo: 3, mandalore: 4 };
@@ -1065,7 +1118,7 @@ const DATA = {{ data_json }};
   };
 
   compact = loadCompact();
-  loadPlan(planName());
+  if (!loadSharedPlan()) loadPlan(planName());
   render();
 })();
 </script>

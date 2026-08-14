@@ -66,14 +66,19 @@ cannot star the planet). Then:
   line shows minTP·maxTP·platoons·deploy·CM avail plus a ⚠ warn when
   infeasible.
 - State = `deployPct` + `unlockZeffo`/`unlockMandalore` + `days[d][planet]`
-  `{goal, platoons, cmPct}`, persisted per plan in `localStorage`
-  (`roteCalcPlans` key, current name in `roteCalcCurrent`). The current plan is
-  auto-saved on every change; the header "New Plan" popup (`openNewPlan`/
-  `createNewPlan`) creates an additional plan, either duplicating the current
-  one or starting blank, and switches to it. `setGoal`/`setPlatoon` re-render;
-  `cmInput`/`deployInput` only patch the results panel via `updateResults()`.
-  Handlers keyed by `d<day>-<planet>[-plats]` ids/radio names; the `-cm`
-  slider id also drives `cmInput`.
+  `{goal, platoons, cmPct}`, persisted per plan in `localStorage` under
+  **per-guild** keys (`roteCalcPlans:<guildId>` map, current name in
+  `roteCalcCurrent:<guildId>`; `guildId` is parsed from the page URL). The
+  current plan is auto-saved on every change; the header "New Plan" popup
+  (`openNewPlan`/`createNewPlan`) creates an additional plan, either
+  duplicating the current one or starting blank, and switches to it.
+  `setGoal`/`setPlatoon` re-render; `cmInput`/`deployInput` only patch the
+  results panel via `updateResults()`. Handlers keyed by `d<day>-<planet>
+  [-plats]` ids/radio names; the `-cm` slider id also drives `cmInput`.
+- Sharing: the header "Share" button copies a URL with the plan state embedded
+  as URL-safe base64 of the JSON (`?plan=<payload>`, via `TextEncoder`→`btoa`).
+  Opening such a URL decodes it into an editable "Shared" plan (saved to the
+  per-guild localStorage map) — effectively cloning the shared plan.
 - Numbers: `fmt()` shows scores compactly by default (`1.2B` / `234.3M`, at
   most one decimal) while `pfmt()` keeps exact values for tooltips; the
   header "compact numbers" checkbox toggles `fmt()` between compact and

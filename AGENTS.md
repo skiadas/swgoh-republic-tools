@@ -125,9 +125,12 @@ Self-contained Jinja2 HTML page (`HTML_TEMPLATE`) with data inlined as
 `const DATA = {...}`; app logic is the second `<script>` block (single JS
 IIFE). Inputs: `data/rote/t05D.json` planets (star thresholds, op platoon
 rewards, CM max from each mission's `pointsPerWave` × `CM_MULTIPLIER`) plus
-`data/guilds/<guildId>.summary.json` guild GP. Verify the JS with `node --check`
-on the second `<script>` block; jsdom sanity: 100% CM → 47 stars no unlocks /
-54 both specials; 50% → 43; 30% → 41. Full model (per-day aggregate `compute()`,
+`data/guilds/<guildId>.summary.json` guild GP. Plans live in **per-guild**
+`localStorage` keys (no server storage yet); a "Share" button copies a URL with
+the plan payload embedded (`?plan=<base64url>`), and opening such a URL loads it
+as an editable "Shared" plan. Verify the JS with `node --check` on the second
+`<script>` block; jsdom sanity: 100% CM → 47 stars no unlocks / 54 both
+specials; 50% → 43; 30% → 41. Full model (per-day aggregate `compute()`,
 UI/state, optimizer): `docs/rote-calculator.md`.
 
 ### Op-fill planning (`rote_ops.py`)
