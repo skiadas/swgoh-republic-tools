@@ -226,14 +226,14 @@ def create_app(outdir=None, db_path=None, comlink=None):
         admin = ""
         if is_admin(request):
             admin = '<div class="card"><a href="/admin">Admin</a></div>'
-        rows = [g for g in db.list_guilds() if g["enabled"]]
+        rows = db.list_guilds()
         if not rows:
             body = admin + '<div class="card">No guilds yet.</div>'
         else:
-            body = admin + "<table><tr><th>Guild</th><th>TB</th><th>Last refresh</th><th></th></tr>"
+            body = admin + "<table><tr><th>Guild</th><th>Last refresh</th><th></th></tr>"
             for g in rows:
                 body += (
-                    f"<tr><td>{_esc(guild_display(g))}</td><td>{_esc(g['tb_id'])}</td>"
+                    f"<tr><td>{_esc(guild_display(g))}</td>"
                     f"<td>{_esc((g['last_refresh'] or '—')[:19])}</td>"
                     f"<td><a href='/g/{g['id']}'>open</a></td></tr>"
                 )
@@ -254,7 +254,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         calc_file = outdir / "guilds" / f"{guild_id}.calculator.html"
         links += f"<a href='/g/{guild_id}/report'>squad report</a>" if report.is_file() else "squad report (pending)"
         links += f"<a href='/g/{guild_id}/calc'>ROTE calculator</a>" if calc_file.is_file() else "ROTE calculator (pending)"
-        body = f'<div class="card"><b>{_esc(guild_display(g))}</b> · TB {_esc(g["tb_id"])} · last refresh {_esc((g["last_refresh"] or "—")[:19])}</div>'
+        body = f'<div class="card"><b>{_esc(guild_display(g))}</b> · last refresh {_esc((g["last_refresh"] or "—")[:19])}</div>'
         job = db.latest_job(guild_id)
         if job:
             body += f'<div class="card">Job: <b>{_esc(job["kind"])}</b> · {_esc(job["status"])} · started {_esc((job["started_at"] or "")[:19])}'
@@ -274,10 +274,6 @@ def create_app(outdir=None, db_path=None, comlink=None):
             current_squads = g.get("squads_json") or ""
             body += f"""
 <div class="card"><h3>Officer settings</h3>
-<form method="post" action="/g/{guild_id}/settings">
-  TB: <select name="tb_id"><option value="t05D">t05D</option></select>
-  <button>Update TB</button>
-</form>
 <form method="post" action="/g/{guild_id}/squads">
   <p>Squad definitions (JSON, validated against squads.schema.json):</p>
   <textarea name="squads" rows="12" cols="80">{_esc(current_squads)}</textarea><br>
@@ -304,20 +300,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         except jsonschema.ValidationError as exc:
             raise HTTPException(400, f"schema: {exc.message}") from exc
         db.upsert_guild(guild_id, squads_json=json.dumps(data, indent=2))
-        g = db.get_guild(guild_id)
-        runner.regen(guild_id, tb_id=g["tb_id"] or "t05D", squads_json=g.get("squads_json"))
-        return RedirectResponse(f"/g/{guild_id}", status_code=303)
-
-    @app.post("/g/{guild_id}/settings")
-    async def set_guild_settings(guild_id: str, request: Request):
-        require_guild(guild_id)
-        require_guild_role(guild_id, request)
-        form = await request.form()
-        tb_id = str(form.get("tb_id") or "").strip()
-        if tb_id:
-            db.upsert_guild(guild_id, tb_id=tb_id)
-        g = db.get_guild(guild_id)
-        runner.regen(guild_id, tb_id=g["tb_id"] or "t05D", squads_json=g.get("squads_json"))
+        runner.regen(guild_id, squads_json=data)
         return RedirectResponse(f"/g/{guild_id}", status_code=303)
 
     @app.get("/g/{guild_id}/report")
@@ -376,7 +359,6 @@ def create_app(outdir=None, db_path=None, comlink=None):
             return RedirectResponse("/admin/login", status_code=302)
         rows = "".join(
             f"<tr><td>{_esc(guild_display(g))} <span class='muted'>({_esc(g['id'])})</span></td>"
-            f"<td>{_esc(g['tb_id'])}</td><td>{'yes' if g['enabled'] else 'no'}</td>"
             f"<td>{_esc((g['last_refresh'] or '—')[:19])}</td>"
             f"<td><a href='/admin/g/{g['id']}'>manage</a></td></tr>"
             for g in db.list_guilds()
@@ -399,7 +381,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
   <button>Create link</button>
 </form>
 <h2>Guilds</h2>
-<table><tr><th>id</th><th>name</th><th>tb</th><th>enabled</th><th>last refresh</th><th></th></tr>""" + rows + "</table>"
+<table><tr><th>id</th><th>name</th><th>last refresh</th><th></th></tr>""" + rows + "</table>"
         if links:
             body += "<h2>Discord links</h2><table><tr><th>discord id</th><th>allycode</th><th>linked by</th></tr>" + links + "</table>"
         body += '<p><a href="/admin/logout">Sign out</a></p>'
@@ -431,16 +413,17 @@ def create_app(outdir=None, db_path=None, comlink=None):
         body = f"""
 <div class="card"><a href="/admin">&larr; Admin</a> · <a href="/g/{guild_id}">View public page</a></div>
 <div class="card"><b>{_esc(guild_display(g))}</b> <span class="muted">({_esc(g['id'])})</span><br>
-  TB <b>{_esc(g['tb_id'])}</b> · enabled <b>{'yes' if g['enabled'] else 'no'}</b> · last refresh {_esc((g['last_refresh'] or '—')[:19])}
+  last refresh {_esc((g['last_refresh'] or '—')[:19])}
   <br>{links}</div>
 {jobline}
 <form method="post" action="/admin/guilds/{guild_id}/refresh"><button>Refresh now (fetch from EA)</button></form>
 <form method="post" action="/admin/guilds/{guild_id}/regen"><button>Regenerate pages (from cache)</button></form>
-<form method="post" action="/admin/guilds/{guild_id}/settings">
-  TB: <select name="tb_id"><option value="t05D">t05D</option></select>
-  Enabled: <select name="enabled"><option value="1">yes</option><option value="0">no</option></select>
-  <button>Update settings</button>
-</form>
+<div class="card">
+  <form method="post" action="/admin/guilds/{guild_id}/remove">
+    <label><input type="checkbox" name="confirm" value="1" required> Remove this guild and its data</label>
+    <button>Remove guild</button>
+  </form>
+</div>
 """
         return _page(f"{guild_display(g)} — SWGOH reviewer", body)
 
@@ -482,23 +465,18 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.post("/admin/guilds/{guild_id}/regen")
     def regen_guild(guild_id: str, _ok: bool = Depends(require_admin)):
         g = require_guild(guild_id)
-        runner.enqueue(
-            "regen",
-            guild_id,
-            lambda: runner.regen(guild_id, tb_id=g["tb_id"] or "t05D", squads_json=g.get("squads_json")),
-        )
+        runner.enqueue("regen", guild_id, lambda: runner.regen(guild_id, squads_json=g.get("squads_json")))
         return RedirectResponse(f"/admin/g/{guild_id}", status_code=303)
 
-    @app.post("/admin/guilds/{guild_id}/settings")
-    def update_settings(
-        guild_id: str,
-        tb_id: str = Form(default=""),
-        enabled: str = Form(default=""),
-        _ok: bool = Depends(require_admin),
-    ):
+    @app.post("/admin/guilds/{guild_id}/remove")
+    def remove_guild(guild_id: str, confirm: str = Form(default=""), _ok: bool = Depends(require_admin)):
         require_guild(guild_id)
-        db.upsert_guild(guild_id, tb_id=tb_id or None, enabled=(1 if enabled == "1" else 0))
-        return {"guildId": guild_id, "status": "ok"}
+        if confirm != "1":
+            raise HTTPException(400, "check the confirm box to remove the guild")
+        db.delete_guild(guild_id)
+        for path in (outdir / "guilds").glob(f"{guild_id}.*"):
+            path.unlink()
+        return RedirectResponse("/admin", status_code=303)
 
     @app.post("/admin/refresh")
     def refresh_all(_ok: bool = Depends(require_admin)):

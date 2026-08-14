@@ -50,7 +50,7 @@ def register_guild(client, tmp_path):
 
     conn = sqlite3.connect(tmp_path / "service.db")
     conn.execute(
-        "INSERT INTO guilds (id, name, tb_id, enabled, created_at) VALUES ('G1','Guild One','t05D',1,datetime('now'))"
+        "INSERT INTO guilds (id, name, created_at) VALUES ('G1','Guild One',datetime('now'))"
     )
     conn.commit()
 def test_index_lists_registered_guild(tmp_path):
@@ -120,21 +120,18 @@ def test_admin_logout(tmp_path):
     assert client.get("/admin", follow_redirects=False).status_code == 302
 
 
-def test_settings_update(tmp_path):
+def test_remove_guild(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
     register_guild(client, tmp_path)
     client.post("/admin/login", data={"token": "secret"})
-    r = client.post("/admin/guilds/G1/settings", data={"tb_id": "t06D", "enabled": "0"})
-    assert r.status_code == 200
-    g = client.app.state.db if hasattr(client.app.state, "db") else None
-    # re-read via a fresh client connection
-    import sqlite3
-
-    conn = sqlite3.connect(tmp_path / "service.db")
-    row = conn.execute("SELECT tb_id, enabled FROM guilds WHERE id='G1'").fetchone()
-    assert row[0] == "t06D"
-    assert row[1] == 0
+    # must confirm before removing
+    assert client.post("/admin/guilds/G1/remove", data={}, follow_redirects=False).status_code == 400
+    r = client.post("/admin/guilds/G1/remove", data={"confirm": "1"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/admin"
+    assert client.app.state.db.get_guild("G1") is None
+    assert not list((tmp_path / "guilds").glob("G1.*"))
+    assert client.get("/g/G1").status_code == 404
 
 
 def _set_session(client, discord_id, username="U"):
@@ -172,8 +169,6 @@ def test_officer_gate_rejects_unlinked(tmp_path):
     register_guild(client, tmp_path)
     _set_session(client, "d1")
     r = client.post("/g/G1/squads", data={"squads": "{}"}, follow_redirects=False)
-    assert r.status_code == 403
-    r = client.post("/g/G1/settings", data={"tb_id": "t05D"}, follow_redirects=False)
     assert r.status_code == 403
 
 
@@ -226,7 +221,7 @@ def test_register_guild_form(tmp_path, monkeypatch):
     r = client.post("/admin/guilds", data={"guild_id": "G1"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/admin/g/G1"
     g = client.app.state.db.get_guild("G1")
-    assert g is not None and g["tb_id"] == "t05D"
+    assert g is not None
     # a "running" job row was logged (the async worker may or may not have run yet)
     job = client.app.state.db.latest_job("G1")
     assert job is not None and job["kind"] == "refresh" and job["status"] == "running"
@@ -266,7 +261,7 @@ def test_refresh_guild_does_not_deadlock_on_regen(tmp_path, monkeypatch):
     from server.jobs import JobRunner
 
     db = Database(tmp_path / "service.db")
-    db.upsert_guild("G1", name="Guild One", tb_id="t05D")
+    db.upsert_guild("G1", name="Guild One")
     runner = JobRunner(db, outdir=tmp_path, max_rps=4.0)
 
     monkeypatch.setattr(

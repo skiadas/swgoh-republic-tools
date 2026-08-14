@@ -72,6 +72,11 @@ class DB:
     def get_guild(self, guild_id):
         return self._row("SELECT * FROM guilds WHERE id = ?", (guild_id,))
 
+    def delete_guild(self, guild_id):
+        """Remove a guild and its job history (discord links are player-level and stay)."""
+        self._exec("DELETE FROM guilds WHERE id = ?", (guild_id,))
+        self._exec("DELETE FROM job_log WHERE guild_id = ?", (guild_id,))
+
     def upsert_guild(self, guild_id, name=None, tb_id=None, enabled=None, squads_json=None):
         g = self.get_guild(guild_id)
         if g is None:

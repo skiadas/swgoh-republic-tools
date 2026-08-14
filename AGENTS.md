@@ -186,15 +186,18 @@ admin. Run locally with `uv run uvicorn server.app:app`. Env config:
   `SWGOH_COOKIE_SECURE=1` behind HTTPS.
 
 Layout: `server/db.py` (SQLite: guild registry incl. per-guild
-`tb_id`/`squads_json`/`enabled`, `discord_links`, `job_log`), `server/jobs.py`
+`squads_json` + `last_refresh`, `discord_links`, `job_log`; the legacy
+`tb_id`/`enabled` columns are unused), `server/jobs.py`
 (JobRunner — regen offline, refresh via comlink, nightly loop; serialized by
 the reentrant lock; admin-triggered jobs are **enqueued** and run on a
 background worker so requests return immediately with a 303, status visible in
 `job_log`), `server/auth.py` (Discord OAuth + signed cookies + roster-derived
 roles), `server/app.py` (routes). Read access is open at
-`/g/<id>/{report,calc}`; `/g/<id>/{squads,settings}` need an officer/leader
+`/g/<id>/{report,calc}`; `/g/<id>/squads` needs an officer/leader
 role (or admin); `/admin*` needs the signed 24h admin cookie (token entered at
-`/admin/login`, never a URL). Discord links (`discord_id → allycode`) are made
+`/admin/login`, never a URL). Every registered guild is public and refreshed
+nightly; removing a guild (admin → Remove guild, confirmed) deletes its DB row
+and `data/guilds/<id>.*` files. Discord links (`discord_id → allycode`) are made
 by an admin; roles come from the manifest's `memberLevel`.
 Per-guild custom `squads_json` is materialized to
 `data/guilds/<id>.squads-config.json` and passed to `squad_report`.

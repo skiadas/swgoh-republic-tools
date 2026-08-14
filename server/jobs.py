@@ -16,6 +16,9 @@ from swgoh_reviewer import calc, dashboard, pipeline, squads, tb
 from swgoh_reviewer.config import data_root
 from swgoh_reviewer.io import atomic_write_text
 
+# The ROTE campaign the site plans around (internal id; never shown to users).
+TB_ID = "t05D"
+
 
 class JobError(RuntimeError):
     pass
@@ -70,8 +73,9 @@ class JobRunner:
         return p
 
     # ---- jobs ----
-    def regen(self, guild_id, tb_id="t05D", squads_json=None):
+    def regen(self, guild_id, squads_json=None):
         """Regenerate squad report + dashboard + calculator from existing caches (no EA calls)."""
+        tb_id = TB_ID
         with self._lock:
             start = datetime.now(timezone.utc).isoformat()
             try:
@@ -91,12 +95,12 @@ class JobRunner:
                     try:
                         tb.main([tb_id, "--outdir", str(self.outdir)])
                     except Exception as exc:  # noqa: BLE001 - calc is optional
-                        print(f"[regen] TB doc {tb_id} unavailable; calculator skipped: {exc}", flush=True)
+                        print(f"[regen] TB doc unavailable; calculator skipped: {exc}", flush=True)
                 if rote_path.exists():
                     if calc.main([guild_id, "--outdir", str(self.outdir), "--tb", tb_id]) not in (0, None):
                         raise JobError("rote_calc failed")
                 else:
-                    print(f"[regen] {tb_id}.json missing; ROTE calculator skipped", flush=True)
+                    print("[regen] ROTE calculator skipped (TB doc unavailable)", flush=True)
                 self.db.log_job(guild_id, "regen", "ok", started_at=start)
                 return {"guildId": guild_id, "status": "ok", "kind": "regen"}
             except Exception as exc:  # noqa: BLE001 - report as job failure
@@ -121,7 +125,7 @@ class JobRunner:
                 self.db.upsert_guild(guild_id, name=name or None)
                 self.db.set_last_refresh(guild_id)
                 # regenerate pages from the fresh summary
-                self.regen(guild_id, tb_id=g.get("tb_id", "t05D"), squads_json=g.get("squads_json"))
+                self.regen(guild_id, squads_json=g.get("squads_json"))
                 self.db.log_job(guild_id, "refresh", "ok", started_at=start)
                 return {"guildId": guild_id, "status": "ok", "kind": "refresh", "name": name}
             except Exception as exc:  # noqa: BLE001
@@ -131,8 +135,6 @@ class JobRunner:
     def refresh_all(self, comlink):
         results = []
         for g in self.db.list_guilds():
-            if not g.get("enabled"):
-                continue
             try:
                 results.append(self.refresh_guild(g["id"], comlink))
             except JobError as exc:
