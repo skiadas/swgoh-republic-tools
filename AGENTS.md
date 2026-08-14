@@ -243,7 +243,9 @@ token-gated admin. Run locally with `uv run uvicorn server.app:app` (or
 Layout: `server/db.py` (SQLite: guild registry incl. per-guild `tb_id`/
 `squads_json`/`enabled`, `discord_links`, `job_log`), `server/jobs.py`
 (JobRunner — regen offline, refresh via comlink, nightly loop; serialized by a
-lock), `server/auth.py` (Discord OAuth + signed cookies + roster-derived
+lock; admin-triggered jobs are **enqueued** and run on a background worker so
+requests return immediately with a 303 redirect, with status visible in
+`job_log`), `server/auth.py` (Discord OAuth + signed cookies + roster-derived
 roles), `server/app.py` (routes). Read access is open for registered guilds at
 `/g/<id>/{report,calc}`; `/g/<id>/{squads,settings}` require an officer/leader
 roster role (or admin); `/admin*` is gated by a signed 24h admin session

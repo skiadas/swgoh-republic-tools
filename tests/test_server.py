@@ -217,15 +217,32 @@ def test_admin_link_create(tmp_path):
 
 
 def test_register_guild_form(tmp_path, monkeypatch):
-    """Register reads form fields (not query params) and defaults TB/name."""
+    """Register reads form fields, enqueues an async refresh, and redirects."""
     make_data(tmp_path)
     client = make_client(tmp_path)
     client.post("/admin/login", data={"token": "secret"})
     # empty form -> validation error (proves it parses form body)
     assert client.post("/admin/guilds", data={}).status_code == 400
-    # guild_id via form body registers the guild (refresh monkeypatched)
+    # guild_id via form body registers the guild and redirects immediately
     monkeypatch.setattr(client.app.state.runner, "refresh_guild", lambda gid, comlink: {"guildId": gid})
-    r = client.post("/admin/guilds", data={"guild_id": "G1"})
-    assert r.status_code == 200
+    r = client.post("/admin/guilds", data={"guild_id": "G1"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/g/G1"
     g = client.app.state.db.get_guild("G1")
     assert g is not None and g["tb_id"] == "t05D"
+    # a "running" job row was logged (the async worker may or may not have run yet)
+    job = client.app.state.db.latest_job("G1")
+    assert job is not None and job["kind"] == "refresh" and job["status"] == "running"
+
+
+def test_admin_refresh_async(tmp_path):
+    """Admin refresh/regen return immediately (303) and enqueue a job."""
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    client.post("/admin/login", data={"token": "secret"})
+    r = client.post("/admin/guilds/G1/refresh", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/g/G1"
+    assert client.app.state.db.latest_job("G1")["kind"] == "refresh"
+    r = client.post("/admin/guilds/G1/regen", follow_redirects=False)
+    assert r.status_code == 303
+    assert client.app.state.db.latest_job("G1")["kind"] == "regen"

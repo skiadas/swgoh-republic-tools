@@ -87,6 +87,7 @@ def _page(title, body):
  th,td {{ border:1px solid #ddd; padding:5px 8px; text-align:left; }}
  th {{ background:#f0f2f5; }}
  input,select {{ padding:3px 6px; }}
+ .muted {{ color:#888; }}
 </style></head><body><header><h1>{_esc(title)}</h1></header><main>{body}</main></body></html>"""
 
 
@@ -121,6 +122,20 @@ def create_app(outdir=None, db_path=None, comlink=None):
     app.state.outdir = outdir
     app.state.runner = runner
     app.state.comlink = comlink
+
+    def guild_display(g):
+        """Display name: DB name, else the manifest's guildName, else the id."""
+        if g.get("name"):
+            return g["name"]
+        p = outdir / "guilds" / f"{g['id']}.json"
+        if p.exists():
+            try:
+                name = json.loads(p.read_text()).get("guildName")
+                if name:
+                    return name
+            except (OSError, ValueError):
+                pass
+        return g["id"]
 
     def require_guild(guild_id: str):
         if not GUILD_ID_RE.match(guild_id):
@@ -207,7 +222,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
             body = "<table><tr><th>Guild</th><th>TB</th><th>Last refresh</th><th></th></tr>"
             for g in rows:
                 body += (
-                    f"<tr><td>{_esc(g['name'] or g['id'])}</td><td>{_esc(g['tb_id'])}</td>"
+                    f"<tr><td>{_esc(guild_display(g))}</td><td>{_esc(g['tb_id'])}</td>"
                     f"<td>{_esc((g['last_refresh'] or '—')[:19])}</td>"
                     f"<td><a href='/g/{g['id']}'>open</a></td></tr>"
                 )
@@ -228,7 +243,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
         calc_file = outdir / "guilds" / f"{guild_id}.calculator.html"
         links += f"<a href='/g/{guild_id}/report'>squad report</a>" if report.is_file() else "squad report (pending)"
         links += f"<a href='/g/{guild_id}/calc'>ROTE calculator</a>" if calc_file.is_file() else "ROTE calculator (pending)"
-        body = f'<div class="card"><b>{_esc(g["name"] or g["id"])}</b> · TB {_esc(g["tb_id"])} · last refresh {_esc((g["last_refresh"] or "—")[:19])}</div>'
+        body = f'<div class="card"><b>{_esc(guild_display(g))}</b> · TB {_esc(g["tb_id"])} · last refresh {_esc((g["last_refresh"] or "—")[:19])}</div>'
+        job = db.latest_job(guild_id)
+        if job:
+            body += f'<div class="card">Job: <b>{_esc(job["kind"])}</b> · {_esc(job["status"])} · started {_esc((job["started_at"] or "")[:19])}'
+            if job.get("message"):
+                body += f' · <span class="muted">{_esc(job["message"][:120])}</span>'
+            body += "</div>"
         body += f'<div class="card">{links}</div>'
         # officer controls
         session = session_user(request)
@@ -248,7 +269,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
   <button>Save squad definitions</button>
 </form>
 </div>"""
-        return _page(f"{g['name'] or guild_id} — SWGOH reviewer", body)
+        return _page(f"{guild_display(g)} — SWGOH reviewer", body)
 
     @app.post("/g/{guild_id}/squads")
     async def set_guild_squads(guild_id: str, request: Request):
@@ -339,7 +360,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         if not is_admin(request):
             return RedirectResponse("/admin/login", status_code=302)
         rows = "".join(
-            f"<tr><td>{_esc(g['id'])}</td><td>{_esc(g['name'] or '—')}</td>"
+            f"<tr><td>{_esc(guild_display(g))} <span class='muted'>({_esc(g['id'])})</span></td>"
             f"<td>{_esc(g['tb_id'])}</td><td>{'yes' if g['enabled'] else 'no'}</td>"
             f"<td>{_esc((g['last_refresh'] or '—')[:19])}</td>"
             f"<td><a href='/admin/g/{g['id']}'>manage</a></td></tr>"
@@ -381,10 +402,22 @@ def create_app(outdir=None, db_path=None, comlink=None):
         if not is_admin(request):
             return RedirectResponse("/admin/login", status_code=302)
         g = require_guild(guild_id)
+        report = outdir / "guilds" / f"{guild_id}.squads.html"
+        calc_file = outdir / "guilds" / f"{guild_id}.calculator.html"
+        links = f"<a href='/g/{guild_id}/report'>report</a>" if report.is_file() else "report (pending)"
+        links += f" <a href='/g/{guild_id}/calc'>calc</a>" if calc_file.is_file() else " calc (pending)"
+        job = db.latest_job(guild_id)
+        jobline = ""
+        if job:
+            jobline = f'<div class="card">Job: <b>{_esc(job["kind"])}</b> · {_esc(job["status"])} · started {_esc((job["started_at"] or "")[:19])}'
+            if job.get("message"):
+                jobline += f' · <span class="muted">{_esc(job["message"][:120])}</span>'
+            jobline += "</div>"
         body = f"""
-<div class="card"><b>{_esc(g['id'])}</b> — {_esc(g['name'] or '—')}<br>
+<div class="card"><b>{_esc(guild_display(g))}</b> <span class="muted">({_esc(g['id'])})</span><br>
   TB <b>{_esc(g['tb_id'])}</b> · enabled <b>{'yes' if g['enabled'] else 'no'}</b> · last refresh {_esc((g['last_refresh'] or '—')[:19])}
-  <br><a href="/g/{guild_id}/report">report</a> <a href="/g/{guild_id}/calc">calc</a></div>
+  <br>{links}</div>
+{jobline}
 <form method="post" action="/admin/guilds/{guild_id}/refresh"><button>Refresh now (fetch from EA)</button></form>
 <form method="post" action="/admin/guilds/{guild_id}/regen"><button>Regenerate pages (from cache)</button></form>
 <form method="post" action="/admin/guilds/{guild_id}/settings">
@@ -393,7 +426,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
   <button>Update settings</button>
 </form>
 """
-        return _page(f"Admin {g['id']} — SWGOH reviewer", body)
+        return _page(f"{guild_display(g)} — SWGOH reviewer", body)
 
     @app.post("/admin/guilds")
     def register_guild(
@@ -403,6 +436,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     ):
         if not guild_id and not allycode:
             raise HTTPException(400, "need guild_id or allycode")
+        name = None
         if guild_id:
             if not GUILD_ID_RE.match(guild_id):
                 raise HTTPException(400, "bad guild id")
@@ -412,33 +446,32 @@ def create_app(outdir=None, db_path=None, comlink=None):
 
             try:
                 with SwgohComlink(url=comlink) as c:
-                    guild_id = c.get_player(allycode=str(allycode)).get("guildId")
+                    player = c.get_player(allycode=str(allycode))
+                    guild_id = player.get("guildId")
+                    name = player.get("guildName") or None
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(502, f"could not resolve guild from ally code: {exc}") from exc
             if not guild_id:
                 raise HTTPException(404, "ally code resolved to no guild")
-        db.upsert_guild(guild_id)
-        try:
-            runner.refresh_guild(guild_id, comlink)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(502, str(exc)) from exc
-        return {"guildId": guild_id, "status": "ok"}
+        db.upsert_guild(guild_id, name=name)
+        runner.enqueue("refresh", guild_id, lambda: runner.refresh_guild(guild_id, comlink))
+        return RedirectResponse(f"/g/{guild_id}", status_code=303)
 
     @app.post("/admin/guilds/{guild_id}/refresh")
     def refresh_guild(guild_id: str, _ok: bool = Depends(require_admin)):
         require_guild(guild_id)
-        try:
-            return runner.refresh_guild(guild_id, comlink)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(502, str(exc)) from exc
+        runner.enqueue("refresh", guild_id, lambda: runner.refresh_guild(guild_id, comlink))
+        return RedirectResponse(f"/g/{guild_id}", status_code=303)
 
     @app.post("/admin/guilds/{guild_id}/regen")
     def regen_guild(guild_id: str, _ok: bool = Depends(require_admin)):
         g = require_guild(guild_id)
-        try:
-            return runner.regen(guild_id, tb_id=g["tb_id"] or "t05D", squads_json=g.get("squads_json"))
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(502, str(exc)) from exc
+        runner.enqueue(
+            "regen",
+            guild_id,
+            lambda: runner.regen(guild_id, tb_id=g["tb_id"] or "t05D", squads_json=g.get("squads_json")),
+        )
+        return RedirectResponse(f"/g/{guild_id}", status_code=303)
 
     @app.post("/admin/guilds/{guild_id}/settings")
     def update_settings(
@@ -453,7 +486,8 @@ def create_app(outdir=None, db_path=None, comlink=None):
 
     @app.post("/admin/refresh")
     def refresh_all(_ok: bool = Depends(require_admin)):
-        return {"results": runner.refresh_all(comlink)}
+        runner.enqueue("refresh-all", None, lambda: runner.refresh_all(comlink))
+        return RedirectResponse("/admin", status_code=303)
 
     return app
 

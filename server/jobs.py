@@ -7,6 +7,7 @@ manual action never collides with the nightly refresh.
 """
 
 import os
+import queue
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,6 +27,28 @@ class JobRunner:
         self.outdir = Path(outdir or data_root())
         self.max_rps = max_rps
         self._lock = threading.Lock()
+        self._queue = queue.Queue()
+        threading.Thread(target=self._worker, daemon=True).start()
+
+    def enqueue(self, kind, guild_id, fn):
+        """Run fn in the background.
+
+        Logs a "running" job row now; the job fn itself logs the terminal
+        ok/error row (regen/refresh_guild already do). The queue worker runs
+        jobs one at a time; the per-job lock still serializes them against
+        the nightly refresh.
+        """
+        start = datetime.now(timezone.utc).isoformat()
+        self.db.log_job(guild_id, kind, "running", started_at=start)
+        self._queue.put((guild_id, fn))
+
+    def _worker(self):
+        while True:
+            _guild_id, fn = self._queue.get()
+            try:
+                fn()
+            except Exception:  # noqa: BLE001 - job fns log their own errors; keep the worker alive
+                pass
 
     # ---- helpers ----
     def _manifest_name(self, guild_id):

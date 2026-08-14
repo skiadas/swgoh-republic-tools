@@ -120,3 +120,8 @@ class DB:
             " VALUES (?,?,?,?,?,?)",
             (guild_id, kind, started_at or now_iso(), now_iso(), status, message[:2000]),
         )
+
+    def latest_job(self, guild_id=None):
+        if guild_id is None:
+            return self._row("SELECT * FROM job_log ORDER BY id DESC LIMIT 1")
+        return self._row("SELECT * FROM job_log WHERE guild_id = ? ORDER BY id DESC LIMIT 1", (guild_id,))
