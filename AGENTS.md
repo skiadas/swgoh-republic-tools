@@ -259,7 +259,9 @@ All artifact writes (summaries, reports, HTML pages, caches) go through
 reader during a nightly regenerate never sees a partial file. `compose.yaml`
 runs a `watchtower` service (scoped to the `app` label) that self-updates the
 app image, and hard memory limits (`mem_limit` + `memswap_limit`) on every
-service — see `deploy/DEPLOY.md`.
+service — see `deploy/DEPLOY.md`. Caddy is gated behind a `web` compose
+profile (started with `docker compose --profile web up -d` in the domain
+setup; not started in the minimal no-domain deploy).
 
 ## Verification patterns
 

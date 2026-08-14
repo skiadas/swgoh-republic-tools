@@ -38,6 +38,8 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: always
+    profiles:
+      - web
     environment:
       SITE_DOMAIN: ${SITE_DOMAIN:-localhost}
     ports:

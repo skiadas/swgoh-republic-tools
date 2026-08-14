@@ -9,11 +9,12 @@ TLS). For minimal, leave `SITE_DOMAIN` and the Discord fields blank, open port
 **80** (not 443) on the Lightsail firewall, and run with the compose override:
 
 ```bash
-docker compose -f compose.yaml -f compose.minimal.yaml up -d --build app
+docker compose -f compose.yaml -f compose.minimal.yaml up -d
 ```
 
-`compose.minimal.yaml` maps the app to host port 80 and keeps Caddy off. At the
-full setup, drop the override file and let Caddy take over 80/443.
+`compose.minimal.yaml` maps the app to host port 80. Caddy is gated behind a
+`web` compose profile, so it only starts in the full setup (`--profile web`);
+no `Caddyfile` is needed for the minimal path.
 
 ## 1. Create the instance
 
@@ -67,8 +68,9 @@ docker compose -f compose.yaml -f compose.minimal.yaml up -d app   # minimal, no
 docker compose logs -f app
 ```
 
-(The full setup uses plain `docker compose up -d` once the domain is
-in place; Caddy then terminates HTTPS on 80/443. No `--build` on the box —
+(The full setup drops the minimal override and adds the `web` profile so Caddy
+starts: `docker compose --profile web up -d`. It also requires fetching the
+`Caddyfile` and pointing your domain at the static IP. No `--build` on the box —
 the image is built in CI and pulled from `ghcr.io/skiadas/swgoh-republic-tools`.)
 
 ## 5. Onboard the first guild
@@ -115,7 +117,7 @@ so the app self-updates within ~5 minutes of a new image being pushed to
 docker compose -f compose.yaml -f compose.minimal.yaml pull app
 docker compose -f compose.yaml -f compose.minimal.yaml up -d app
 ```
-(Use the full compose command without the minimal override once the domain is set.)
+(For the full setup, drop the minimal override and add `--profile web`.)
 
 Compose/config changes are **not** pushed to the box automatically — after a
 compose change, re-fetch the file (fetch-only setup):
