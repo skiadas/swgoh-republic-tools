@@ -21,6 +21,33 @@ def make_files(version="1.0.0:AAAA", units_data=None, locale_entries=None):
         {"baseId": "SHIP_X", "combatType": 2, "categoryId": []},
     ]
     locale_entries = locale_entries if locale_entries is not None else {"CAT1_DESC": "Sith", "UNIT_X_NAME": "Unit X"}
+    campaign_data = [
+        {"id": "OTHER_CAMPAIGN", "campaignMap": [{"campaignNodeDifficultyGroup": []}]},
+        {
+            "id": "t05D",
+            "campaignMap": [
+                {
+                    "campaignNodeDifficultyGroup": [
+                        {
+                            "campaignNode": [
+                                {
+                                    "campaignNodeMission": [
+                                        {
+                                            "id": "PHASE1_TERRITORY_01_COMBATMISSION_01",
+                                            "entryCategoryAllowed": {"minimumRelicTier": 7},
+                                            "campaignNodeEncounter": [{"x": 1}, {"x": 2}],
+                                            "enemyUnitPreview": [],
+                                            "rewardPreview": [],
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+        },
+    ]
     return {
         "allVersions.json": json.dumps(
             {"gameVersion": version, "localeVersion": "LOC_A", "assetVersion": 100}
@@ -40,6 +67,36 @@ def make_files(version="1.0.0:AAAA", units_data=None, locale_entries=None):
         "Loc_ENG_US.txt.json.br": brotli.compress(
             json.dumps({"version": "LOC_A", "data": locale_entries}).encode()
         ),
+        "territoryBattleDefinition.json": json.dumps(
+            {"version": version, "data": [{"id": "t05D", "nameKey": "TB"}]}
+        ).encode(),
+        "campaign.json.br": brotli.compress(json.dumps({"version": version, "data": campaign_data}).encode()),
+        "displayableEnemy.json": json.dumps(
+            {"version": version, "data": [{"id": "PVE_E1", "nameKey": "E1_NAME"}]}
+        ).encode(),
+        "table.json": json.dumps(
+            {
+                "version": version,
+                "data": [{"id": "T1", "row": [{"key": "0", "value": "x:0"}, {"key": "0,1", "value": "x:100"}]}],
+            }
+        ).encode(),
+        "swgoh_rote_operations.json": json.dumps(
+            [
+                {
+                    "id": "P1-C1",
+                    "phase": "P1",
+                    "linkedConflictId": "tb3_mixed_phase01_conflict01",
+                    "nameKey": "Coruscant Operation",
+                    "squads": [
+                        {
+                            "id": "tb3-platoon-6",
+                            "points": 10000000,
+                            "units": [{"baseId": "UNIT_X", "unitRelicTier": 7, "nameKey": "Unit X"}],
+                        }
+                    ],
+                }
+            ]
+        ).encode(),
     }
 
 
@@ -113,6 +170,39 @@ def test_unknown_items_return_empty(tmp_path, monkeypatch):
     files = make_files()
     static = make_static(tmp_path, files, monkeypatch)
     assert static.get_game_data(items="campaign") == {}
+
+
+def test_tb_collections_available(tmp_path, monkeypatch):
+    files = make_files()
+    static = make_static(tmp_path, files, monkeypatch)
+
+    tbd = static.get_game_data(items="territoryBattleDefinition")
+    assert tbd["territoryBattleDefinition"][0]["id"] == "t05D"
+    de = static.get_game_data(items="displayableEnemy")
+    assert de["displayableEnemy"][0]["id"] == "PVE_E1"
+    tables = static.get_game_data(items="table")
+    assert tables["table"][0]["id"] == "T1"
+
+
+def test_get_campaign_slice_extracts_entry(tmp_path, monkeypatch):
+    files = make_files()
+    static = make_static(tmp_path, files, monkeypatch)
+
+    entry = static.get_campaign_slice("t05D")
+    assert entry is not None
+    assert entry["id"] == "t05D"
+    missions = entry["campaignMap"][0]["campaignNodeDifficultyGroup"][0]["campaignNode"][0]["campaignNodeMission"]
+    assert missions[0]["id"] == "PHASE1_TERRITORY_01_COMBATMISSION_01"
+    # the other campaign entry is not materialized
+    assert static.get_campaign_slice("NOPE") is None
+
+
+def test_get_rote_operations(tmp_path, monkeypatch):
+    files = make_files()
+    static = make_static(tmp_path, files, monkeypatch)
+    ops = static.get_rote_operations()
+    assert ops[0]["id"] == "P1-C1"
+    assert ops[0]["nameKey"] == "Coruscant Operation"
 
 
 def test_ensure_caches_builds_standard_cache_files(tmp_path, monkeypatch):

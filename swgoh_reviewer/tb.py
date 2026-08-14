@@ -1,134 +1,90 @@
 #!/usr/bin/env python3
 """Document a Territory Battle (default ROTE, t05D) locally.
 
-Two data sources are merged:
-  1. swgoh.gg "Territory Battle Platoons" pages saved by the user as
-     data/swgoh-gg-ops*.html (one per phase). Each file lists the ops
-     (one per planet), their relic requirement, and platoons 1-6 with the
-     exact units (baseId + display name) and rewards.
-  2. swgoh-comlink game data: the TB structure (phases, planets/conflicts,
-     combat missions with their deploy requirements from entryCategoryAllowed,
-     enemies, rewards) plus recon/ops zone metadata.
+Built entirely from the swgoh-utils/gamedata static repo (acquired by the same
+version-checked refresh as the other game assets — see static_gamedata.py):
+  1. territoryBattleDefinition — TB structure (phases, planets/conflicts, star
+     thresholds, strike/covert/recon/bonus zones).
+  2. campaign (t05D slice) — combat missions with deploy requirements from
+     entryCategoryAllowed, enemies, rewards, waves.
+  3. table — per-wave galactic-score deltas.
+  4. displayableEnemy — enemy display names.
+  5. swgoh_rote_operations — the ops/platoons (replaces the old manual
+     swgoh.gg "Territory Battle Platoons" page saves).
 
-Raw comlink collections are cached under data/rote/ so re-runs are offline
-(--refresh re-fetches). Outputs:
+All relic values are normalized to the in-game relic level (max(0, raw - 2)):
+the game data stores them on the raw currentTier scale, where raw 11 = R9.
+
+Outputs:
     data/rote/<tbId>.json   structured doc
     data/rote/<tbId>.md     human-readable dump
 
 Usage:
     python rote.py                 # t05D (Rise of the Empire)
-    python rote.py --refresh
+    python rote.py --refresh       # re-check the static gamedata for updates
 """
 
 import argparse
-import html as _html
 import json
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from swgoh_comlink import SwgohComlink
-
-from swgoh_reviewer.comlink import DEFAULT_COMLINK
-from swgoh_reviewer.config import data_root
+from swgoh_reviewer.config import data_root, gamedata_base_url
 from swgoh_reviewer.io import atomic_write_text
+from swgoh_reviewer.static_gamedata import StaticGameData
 
 TB_ID = "t05D"
-TB_SLICED = {"campaign", "territoryBattleDefinition"}
-
-def _norm(s):
-    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
-# Canonical per-phase planet/op names (from swgoh.gg). Used to identify which
-# phase each saved file contains and to merge ops into the comlink planets.
-PHASE_PLANETS = {
-    1: ["Coruscant", "Mustafar", "Corellia"],
-    2: ["Bracca", "Geonosis", "Felucia"],
-    3: ["Kashyyyk", "Zeffo", "Dathomir", "Tatooine"],
-    4: ["Lothal", "Haven-class Medical Station", "Kessel", "Mandalore"],
-    5: ["Ring of Kafrene", "Malachor", "Vandor"],
-    6: ["Scarif", "Death Star", "Hoth"],
-}
-PHASE_NORM = {phase: {_norm(p) for p in planets} for phase, planets in PHASE_PLANETS.items()}
-
-NAV_HEADINGS = {
-    "units", "gac", "tierlists", "reports", "database", "campaigns", "gopremium",
-    "grandarena", "toolsstats", "gamedata", "community", "ournetwork",
-}
+def _display_relic(raw):
+    """Convert a raw relic tier (currentTier scale, +2 offset) to the in-game
+    relic level shown to players (0 = no relic, e.g. raw 11 -> R9)."""
+    try:
+        return max(0, int(raw) - 2)
+    except (TypeError, ValueError):
+        return None
 
 
-def parse_ops_file(path):
-    """Parse one saved swgoh.gg platoons page into a list of op dicts."""
-    doc = _html.unescape(path.read_text())
-    ops = []
-    headers = list(re.finditer(r'<div class="panel__header">', doc))
-    for i, m in enumerate(headers):
-        end = headers[i + 1].start() if i + 1 < len(headers) else len(doc)
-        section = doc[m.start():end]
-        h3 = re.search(r"<h3[^>]*>([^<]+)</h3>", section)
-        if not h3:
-            continue
-        name = _html.unescape(h3.group(1)).strip()
-        if _norm(name) in NAV_HEADINGS:
-            continue
-        badge = re.search(r"relic-badge.*?<text[^>]*>(\d+)</text>", section, re.S)
-        platoons = []
-        inners = list(re.finditer(r'<div class="panel panel--inner">', section))
-        for j, pm in enumerate(inners):
-            pend = inners[j + 1].start() if j + 1 < len(inners) else len(section)
-            psec = section[pm.start():pend]
-            pnum = re.search(r"<span>\s*Platoon (\d)\s*</span>", psec)
-            reward = re.search(r"text-gg-gray-300\">([^<]+)</span>", psec)
-            units = []
-            for um in re.finditer(r'<a[^>]*?title="([^"]*)"[^>]*>(.*?)</a>', psec, re.S):
-                bid = re.search(r'data-unit-def-tooltip-app="([^"]+)"', um.group(2))
-                if not bid:
-                    continue
-                units.append({"baseId": bid.group(1), "name": _html.unescape(um.group(1)).strip()})
-            platoons.append(
-                {
-                    "platoon": int(pnum.group(1)) if pnum else None,
-                    "reward": reward.group(1) if reward else None,
-                    "units": units,
-                }
-            )
-        ops.append(
+def _fmt_reward(points):
+    if not points:
+        return None
+    try:
+        v = float(points) / 1e6
+    except (TypeError, ValueError):
+        return str(points)
+    return f"{round(v, 1):g}M"
+
+
+def _op_display(name_key):
+    """Shorten the op name for display: 'Coruscant Operation' -> 'Coruscant Op'."""
+    name = re.sub(r"\s*(Operation|Mission)$", "", name_key or "", flags=re.I)
+    return f"{name} Op"
+
+
+def build_op(rop, resolver):
+    """Build the doc's op dict from one swgoh_rote_operations entry."""
+    relic = max((u.get("unitRelicTier") or 0) for s in rop.get("squads", []) for u in s.get("units", []))
+    platoons = []
+    # Squads are stored in platoon order (1-6); their "tb3-platoon-N" ids are a
+    # raw EA index that runs the other way, so number platoons by position.
+    for i, squad in enumerate(rop.get("squads", []), start=1):
+        platoons.append(
             {
-                "name": name,
-                "relicRequirement": int(badge.group(1)) if badge else None,
-                "platoons": platoons,
+                "platoon": i,
+                "reward": _fmt_reward(squad.get("points")),
+                "units": [
+                    {"baseId": u.get("baseId"), "name": u.get("nameKey") or resolver.unit_name(u.get("baseId"))}
+                    for u in squad.get("units", [])
+                ],
             }
         )
-    return ops
-
-
-def detect_phase_and_filter(ops):
-    """Return (phase, ops-filtered-to-that-phase) or (None, [])."""
-    names = {_norm(o["name"]) for o in ops}
-    best, best_count = None, -1
-    for phase, canon in PHASE_NORM.items():
-        overlap = len(names & canon)
-        if overlap > best_count:
-            best, best_count = phase, overlap
-    if best is None or best_count == 0:
-        return None, []
-    return best, [o for o in ops if _norm(o["name"]) in PHASE_NORM[best]]
-
-
-def load_swgoh_ops(outdir):
-    ops_by_phase = {}
-    for path in sorted(outdir.glob("swgoh-gg-ops*.html")):
-        ops = parse_ops_file(path)
-        phase, filtered = detect_phase_and_filter(ops)
-        if phase is None or not filtered:
-            print(f"warning: could not identify phase in {path.name}", file=sys.stderr)
-            continue
-        if phase in ops_by_phase:
-            print(f"warning: duplicate phase {phase} from {path.name}", file=sys.stderr)
-        ops_by_phase[phase] = filtered
-    return ops_by_phase
+    return {
+        "name": _op_display(rop.get("nameKey")),
+        "relicRequirement": _display_relic(relic),
+        "platoons": platoons,
+    }
 
 
 class Resolver:
@@ -182,30 +138,15 @@ class Resolver:
 
 
 def fetch_raw(outdir, tb_id, refresh):
-    raw_dir = outdir / "rote"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    cache = {}
-    for key in ("territoryBattleDefinition", "campaign", "displayableEnemy", "table"):
-        path = raw_dir / f"{key}.json"
-        cache[key] = json.loads(path.read_text()) if not refresh and path.exists() else None
-    if any(v is None for v in cache.values()):
-        with SwgohComlink(url=DEFAULT_COMLINK) as comlink:
-            for key, val in cache.items():
-                if val is None:
-                    data = comlink.get_game_data(include_pve_units=False, items=key)
-                    rows = data.get(key, [])
-                    # Only the target TB is needed; the full campaign collection
-                    # (all game modes) is ~91MB vs the ~683KB t05D slice.
-                    if key in TB_SLICED:
-                        rows = [x for x in rows if x.get("id") == tb_id]
-                    cache[key] = rows
-                    atomic_write_text(raw_dir / f"{key}.json", json.dumps(cache[key], separators=(",", ":"), ensure_ascii=False))
-    return (
-        cache["territoryBattleDefinition"],
-        cache["campaign"],
-        cache["displayableEnemy"],
-        cache["table"],
-    )
+    """Load the raw TB collections from the cached static gamedata."""
+    static = StaticGameData(outdir=outdir)
+    static.ensure_raw(refresh=refresh)
+    tbd = static.get_game_data(items="territoryBattleDefinition").get("territoryBattleDefinition", [])
+    entry = static.get_campaign_slice(tb_id)
+    camp = [entry] if entry else []
+    de = static.get_game_data(items="displayableEnemy").get("displayableEnemy", [])
+    tables = static.get_game_data(items="table").get("table", [])
+    return tbd, camp, de, tables
 
 
 def phase_of_zone(zone_id):
@@ -237,7 +178,7 @@ def extract_deploy(ec):
         "excludedCategories": [c for c in ec.get("excludeCategoryId") or []],
         "deployCount": ec.get("minimumRequiredUnitQuantity"),
         "maxDeploy": ec.get("maximumAllowedUnitQuantity"),
-        "minRelic": ec.get("minimumRelicTier"),
+        "minRelic": _display_relic(ec.get("minimumRelicTier")),
         "minRarity": ec.get("minimumUnitRarity"),
         "minModRarity": ec.get("minimumModRarity"),
         "minUnitTier": ec.get("minimumUnitTier"),
@@ -329,7 +270,7 @@ def points_from_table(table_id, tables):
     return None
 
 
-def build_doc(tb, campaign, resolver, swgoh_ops, tables):
+def build_doc(tb, campaign, resolver, static_ops, tables):
     conflicts = {}
     for cz in tb.get("conflictZoneDefinition") or []:
         zd = cz.get("zoneDefinition") or {}
@@ -397,30 +338,15 @@ def build_doc(tb, campaign, resolver, swgoh_ops, tables):
                 "zoneId": zd.get("zoneId"),
                 "nameKey": zd.get("nameKey"),
                 "rarity": rz.get("unitRarity"),
-                "relicTier": rz.get("unitRelicTier"),
+                "relicTier": _display_relic(rz.get("unitRelicTier")),
             }
 
-    # merge swgoh.gg ops into the matching planet (by phase + normalized name)
-    for phase, ops in swgoh_ops.items():
-        for op in ops:
-            target = next(
-                (c for c in conflicts.values() if c["phase"] == phase and _norm(resolver.text(c["nameKey"])) == _norm(op["name"])),
-                None,
-            )
-            if target is None:
-                placeholder = {
-                    "planetId": None,
-                    "phase": phase,
-                    "nameKey": None,
-                    "descriptionKey": None,
-                    "starThresholds": [],
-                    "missions": [],
-                    "recon": None,
-                    "op": None,
-                }
-                conflicts[f"_orphan_{phase}_{_norm(op['name'])}"] = placeholder
-                target = placeholder
-            target["op"] = op
+    # merge ops (from the static repo) onto planets by conflict zone id
+    op_by_conflict = {op.get("linkedConflictId"): op for op in (static_ops or [])}
+    for conflict in conflicts.values():
+        rop = op_by_conflict.get(conflict["planetId"])
+        if rop is not None:
+            conflict["op"] = build_op(rop, resolver)
 
     # finalize: order phases/planets, resolve names
     doc = {
@@ -440,17 +366,7 @@ def build_doc(tb, campaign, resolver, swgoh_ops, tables):
                 op = {
                     "name": c["op"]["name"],
                     "relicRequirement": c["op"]["relicRequirement"],
-                    "platoons": [
-                        {
-                            "platoon": p["platoon"],
-                            "reward": p["reward"],
-                            "units": [
-                                {"baseId": u["baseId"], "name": resolver.unit_name(u["baseId"])}
-                                for u in p["units"]
-                            ],
-                        }
-                        for p in c["op"]["platoons"]
-                    ],
+                    "platoons": c["op"]["platoons"],
                 }
             planets.append(
                 {
@@ -592,14 +508,17 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tb_id", nargs="?", default=TB_ID)
     parser.add_argument("--outdir", type=Path, default=data_root())
-    parser.add_argument("--refresh", action="store_true", help="re-fetch raw comlink collections")
+    parser.add_argument("--refresh", action="store_true", help="re-check the static gamedata for updates")
     args = parser.parse_args(argv)
+
+    if not gamedata_base_url():
+        print("rote.py requires the static gamedata source (SWGOH_GAMEDATA_BASE is empty)", file=sys.stderr)
+        return 2
 
     outdir = args.outdir
     resolver = Resolver(outdir)
-    swgoh_ops = load_swgoh_ops(outdir)
-    if len(swgoh_ops) != 6:
-        print(f"warning: expected 6 phases of ops, found {len(swgoh_ops)}: {sorted(swgoh_ops)}", file=sys.stderr)
+    static = StaticGameData(outdir=outdir)
+    static_ops = static.get_rote_operations()
 
     tbd, camp, de, tables = fetch_raw(outdir, args.tb_id, args.refresh)
     resolver.set_displayable(de)
@@ -608,7 +527,7 @@ def main(argv=None):
         print(f"TB '{args.tb_id}' not found in game data", file=sys.stderr)
         return 2
 
-    doc = build_doc(tb, camp, resolver, swgoh_ops, tables)
+    doc = build_doc(tb, camp, resolver, static_ops, tables)
     doc["generatedAt"] = datetime.now(timezone.utc).isoformat()
 
     outdir = outdir / "rote"

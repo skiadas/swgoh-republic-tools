@@ -12,7 +12,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from swgoh_reviewer import calc, dashboard, pipeline, squads
+from swgoh_reviewer import calc, dashboard, pipeline, squads, tb
 from swgoh_reviewer.config import data_root
 from swgoh_reviewer.io import atomic_write_text
 
@@ -26,7 +26,9 @@ class JobRunner:
         self.db = db
         self.outdir = Path(outdir or data_root())
         self.max_rps = max_rps
-        self._lock = threading.Lock()
+        # RLock so refresh_guild can call regen (which also takes the lock)
+        # without deadlocking the worker thread.
+        self._lock = threading.RLock()
         self._queue = queue.Queue()
         threading.Thread(target=self._worker, daemon=True).start()
 
@@ -81,8 +83,20 @@ class JobRunner:
                     raise JobError("squad_report failed")
                 if dashboard.main([guild_id, "--outdir", str(self.outdir)]) not in (0, None):
                     raise JobError("render_report failed")
-                if calc.main([guild_id, "--outdir", str(self.outdir), "--tb", tb_id]) not in (0, None):
-                    raise JobError("rote_calc failed")
+                # The ROTE calculator needs the TB doc, which is built from the
+                # cached static gamedata; a missing doc (or failed build) skips
+                # the calculator without failing the report/refresh.
+                rote_path = self.outdir / "rote" / f"{tb_id}.json"
+                if not rote_path.exists():
+                    try:
+                        tb.main([tb_id, "--outdir", str(self.outdir)])
+                    except Exception as exc:  # noqa: BLE001 - calc is optional
+                        print(f"[regen] TB doc {tb_id} unavailable; calculator skipped: {exc}", flush=True)
+                if rote_path.exists():
+                    if calc.main([guild_id, "--outdir", str(self.outdir), "--tb", tb_id]) not in (0, None):
+                        raise JobError("rote_calc failed")
+                else:
+                    print(f"[regen] {tb_id}.json missing; ROTE calculator skipped", flush=True)
                 self.db.log_job(guild_id, "regen", "ok", started_at=start)
                 return {"guildId": guild_id, "status": "ok", "kind": "regen"}
             except Exception as exc:  # noqa: BLE001 - report as job failure

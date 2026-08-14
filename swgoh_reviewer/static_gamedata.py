@@ -17,6 +17,7 @@ The static files mirror comlink's response shapes:
 """
 
 import json
+import re
 import urllib.request
 from pathlib import Path
 
@@ -35,6 +36,11 @@ SOURCES = {
     "units": ("units.json.br", True),
     "category": ("category.json", False),
     "localization": ("Loc_ENG_US.txt.json.br", True),
+    "territoryBattleDefinition": ("territoryBattleDefinition.json", False),
+    "campaign": ("campaign.json.br", True),
+    "displayableEnemy": ("displayableEnemy.json", False),
+    "table": ("table.json", False),
+    "roteOperations": ("swgoh_rote_operations.json", False),
 }
 
 
@@ -145,15 +151,49 @@ class StaticGameData:
     def get_game_data(self, include_pve_units=False, items=None, **kwargs):
         """Return the requested game-data collection, comlink-style.
 
-        Only ``units`` and ``category`` are backed by the static repo; anything
-        else returns an empty dict (those callers should keep using comlink).
+        The roster/units collections plus the Territory Battle collections
+        (``territoryBattleDefinition``, ``displayableEnemy``, ``table``) are
+        backed by the static repo. ``campaign`` is intentionally not exposed
+        here (it decompresses to ~53MB) — use :meth:`get_campaign_slice`.
         """
         self.ensure_raw()
         if items == "units":
             return {"units": self._load_collection("units")}
         if items == "category":
             return {"category": self._load_collection("category")}
+        if items in ("territoryBattleDefinition", "displayableEnemy", "table"):
+            return {items: self._load_collection(items)}
         return {}
+
+    def get_campaign_slice(self, tb_id):
+        """Return one campaign entry (e.g. the ``t05D`` TB) without parsing the
+        full ~53MB campaign collection into memory.
+
+        The decompressed campaign JSON is scanned entry-by-entry with a proper
+        JSON decoder (handles strings/nesting), and only the matching entry is
+        materialized — keeps the memory spike tiny on small boxes.
+        """
+        self.ensure_raw()
+        text = brotli.decompress(self._read_collection_bytes("campaign")).decode("utf-8")
+        match = re.search(r'"data"\s*:\s*\[', text)
+        if not match:
+            raise RuntimeError("campaign data has no 'data' array")
+        decoder = json.JSONDecoder()
+        pos = match.end()
+        while pos < len(text):
+            while pos < len(text) and text[pos] in " \t\r\n,":
+                pos += 1
+            if pos >= len(text) or text[pos] == "]":
+                break
+            entry, pos = decoder.raw_decode(text, pos)
+            if isinstance(entry, dict) and entry.get("id") == tb_id:
+                return entry
+        return None
+
+    def get_rote_operations(self):
+        """Return the ROTE op/platoon list (swgoh_rote_operations.json)."""
+        self.ensure_raw()
+        return self._load_collection("roteOperations")
 
     def get_localization(self, locale="ENG_US", unzip=True, **kwargs):
         """Return the English localization in comlink's unzipped text shape."""

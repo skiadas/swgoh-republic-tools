@@ -53,8 +53,6 @@ def register_guild(client, tmp_path):
         "INSERT INTO guilds (id, name, tb_id, enabled, created_at) VALUES ('G1','Guild One','t05D',1,datetime('now'))"
     )
     conn.commit()
-
-
 def test_index_lists_registered_guild(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
@@ -257,3 +255,35 @@ def test_startup_marks_stale_running_jobs(tmp_path):
     with TestClient(app2) as c2:
         job = c2.app.state.db.latest_job("G1")
         assert job["status"] == "interrupted"
+
+
+def test_refresh_guild_does_not_deadlock_on_regen(tmp_path, monkeypatch):
+    """refresh_guild calls regen while holding the lock; the lock must be reentrant."""
+    import threading
+
+    from swgoh_reviewer import calc, dashboard, pipeline, squads
+    from server.db import DB as Database
+    from server.jobs import JobRunner
+
+    db = Database(tmp_path / "service.db")
+    db.upsert_guild("G1", name="Guild One", tb_id="t05D")
+    runner = JobRunner(db, outdir=tmp_path, max_rps=4.0)
+
+    monkeypatch.setattr(
+        pipeline,
+        "refresh_guild",
+        lambda **k: ({"guildId": "G1", "guildName": "Guild One", "memberCount": 1, "members": []}, {}),
+    )
+    monkeypatch.setattr(squads, "main", lambda *a, **k: 0)
+    monkeypatch.setattr(dashboard, "main", lambda *a, **k: 0)
+    monkeypatch.setattr(calc, "main", lambda *a, **k: 0)
+    (tmp_path / "rote").mkdir(parents=True)
+    (tmp_path / "rote" / "t05D.json").write_text("{}")
+
+    result = {}
+    t = threading.Thread(target=lambda: result.update(r=runner.refresh_guild("G1", "http://localhost:3200")))
+    t.start()
+    t.join(timeout=10)
+    assert not t.is_alive(), "refresh_guild deadlocked in regen"
+    assert result["r"]["status"] == "ok"
+    assert db.latest_job("G1")["status"] == "ok"

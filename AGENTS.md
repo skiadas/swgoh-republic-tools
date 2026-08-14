@@ -66,7 +66,10 @@ Set `SWGOH_GAMEDATA_BASE=""` to fall back to comlink for game data.
   by `squad_report.py` for tag validation.
 - `data/game/static/` — raw swgoh-utils/gamedata downloads cached for offline
   rebuilds: `all-versions.json` (version stamp), `units.json.br`,
-  `category.json`, `Loc_ENG_US.txt.json.br`.
+  `category.json`, `Loc_ENG_US.txt.json.br`, plus the Territory Battle sources
+  `territoryBattleDefinition.json`, `campaign.json.br`, `displayableEnemy.json`,
+  `table.json`, `swgoh_rote_operations.json` (all re-acquired automatically
+  when the game version stamp changes).
 - `data/guilds/<guildId>.json` — guild manifest (member list, GP, statuses,
   `memberLevel` roles).
 - `data/guilds/<guildId>.summary.json` — compact per-member roster summary
@@ -214,14 +217,20 @@ dark/neutral/light/specials order. Sanity reference (jsdom-verified): 100% CM
 
 ## Territory Battle docs (`rote.py`)
 
-- Merges two sources: (1) saved `data/swgoh-gg-ops*.html` pages for the
-  op/platoon unit lists (baseIds + relic requirement + rewards), and (2)
-  comlink `territoryBattleDefinition` + `campaign` for the structure and
-  combat-mission deploy requirements (`entryCategoryAllowed`: allowed
-  factions, mandatory units, relic/rarity/mod thresholds), enemies, rewards.
-- swgoh.gg phases load via JS tabs, so each phase must be saved separately by
-  hand; swgoh.gg is 403-blocked to scripts. `--refresh` re-fetches comlink
-  raws; the op pages are always re-read from disk.
+- Built entirely from the cached static gamedata (no comlink, no swgoh.gg):
+  `territoryBattleDefinition` (structure, planets, star thresholds, zones),
+  the `campaign` TB slice (`get_campaign_slice` — a targeted extraction of the
+  t05D entry from the ~53MB campaign.json.br, so it never parses the whole
+  thing into memory), `table` (points-per-wave), `displayableEnemy`, and
+  `swgoh_rote_operations` (the ops/platoon unit lists + relic tiers + rewards,
+  replacing the old manual swgoh.gg page saves).
+- Ops merge onto planets by `linkedConflictId` == conflict `zoneId`; platoons
+  are numbered by their position in the ops file (their `tb3-platoon-N` ids run
+  the other way). All relic values (op requirement, recon, deploy minRelic) are
+  normalized to the in-game level with `max(0, raw - 2)`. Op names are
+  shortened for display ("Coruscant Operation" -> "Coruscant Op").
+- `--refresh` re-checks the static gamedata for updates (re-acquires the TB
+  files when the game version changes).
 
 ## Squads requirements
 
@@ -242,8 +251,8 @@ dark/neutral/light/specials order. Sanity reference (jsdom-verified): 100% CM
 - `fetch_guild.py --refresh-game` and `guild_summary.py --refresh-game`
   re-check `allVersions.json` against the cached stamp and re-download +
   rebuild `data/game/` caches only when the game changed. `build_caches.py`
-  does the same without a guild. None of these need comlink; `rote.py
-  --refresh` still re-fetches its comlink raws.
+  does the same without a guild. `rote.py --refresh` re-acquires the TB
+  collections the same way. None of these need comlink.
 
 ## Web service (`server/`)
 
@@ -321,9 +330,15 @@ stack regardless of the working directory.
   recorded in outputs for precision. Some units share a display name across
   baseIds (e.g. "The Mandalorian (Beskar Armor)" has journey-event variants) —
   harmless for matching, cosmetic for missing-unit baseId resolution.
-- `relicLevel` is the raw relic `currentTier` (0 = no relic). Ability tiers are
-  0-based indexes into the skill def; zeta/omicron flags compare the player's
-  tier against the def's `isZetaTier`/`isOmicronTier` index.
+- `relicLevel` in outputs (summaries, TB docs) is the **in-game relic level**,
+  `max(0, raw - 2)`, where 0 = no relic and the max is R10. The game data /
+  player data carry the raw `relic.currentTier` (and raw requirement fields
+  like `minimumRelicTier`, `unitRelicTier`) on an offset scale: 1–2 = no relic,
+  3 = R1, ..., 12 = R10 — apply `- 2` wherever raw values are shown (this was
+  burned once: raw 11 was displayed as "R11", which does not exist in game).
+  Ability tiers are 0-based indexes into the skill def; zeta/omicron flags
+  compare the player's tier against the def's `isZetaTier`/`isOmicronTier`
+  index.
 - Faction `pool` by tag matches characters only (ships excluded).
 - `commonRelic` squad results carry `commonRelic`/`nextThreshold`/`bottlenecks`
   instead of `complete`/`gap`; a missing required unit yields `commonRelic:
