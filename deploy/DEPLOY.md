@@ -139,14 +139,22 @@ docker compose --profile web logs diun --tail 20
 ```
 
 > **Project name:** compose.yaml pins `name: swgoh-reviewer`. If the box's
-> existing stack was started before this pin existed (i.e. its project name
-> was the directory name), migrating requires a brief stop first:
+> existing stack was started before this pin existed, migrating requires a
+> brief stop and a **volume rename** (compose names volumes after the project,
+> so the old data volume would otherwise be orphaned):
 > ```bash
-> docker compose --profile web down          # uses the OLD project name
-> # ... fetch the updated files (step 3) ...
+> # 1. With the OLD compose.yaml still on disk: stop the stack and find its name
+> docker compose --profile web config --project-name     # -> OLDNAME
+> docker compose --profile web down
+> # 2. Rename the project's volumes to the pinned name (skip any that don't exist)
+> for sfx in data caddy_data caddy_config; do
+>   docker volume rename "${OLDNAME}_${sfx}" "swgoh-reviewer_${sfx}" 2>/dev/null || true
+> done
+> # 3. Fetch the updated files (step 3) and start the new stack
 > docker compose --profile web up -d
 > ```
-> `down` keeps volumes, so guild data survives.
+> Volumes are preserved by the rename, so guild data and the service DB
+> survive.
 
 Compose/config changes are **not** pushed to the box automatically — after a
 compose change, re-fetch the file (fetch-only setup) and recreate:
