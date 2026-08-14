@@ -196,6 +196,35 @@ echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/90-swappiness.conf && sudo sysc
 Note: `mem_limit` without `memswap_limit` would disable swap for that
 container; both are set so transient spikes spill into the host swap.
 
+## Seed the game caches (once per game version)
+
+The first guild refresh asks comlink to build the game-data caches (the full
+localization + units + categories), which spikes comlink's Node heap past the
+$7 box's memory limit and OOMs it (comlink crash-loops; refreshes error with
+"Server disconnected without sending a response"). Avoid the heavy build on
+the box by building the caches once on a machine with plenty of RAM and
+copying them in:
+
+```bash
+# 1. On a dev machine with a local swgoh-comlink running: build the caches
+uv run python build_caches.py          # writes data/game/*.json + data/names.json
+
+# 2. Copy them to the box
+scp data/game/*.json data/names.json ubuntu@<ip>:/home/ubuntu/cache-seed/game/
+# (put names.json in /home/ubuntu/cache-seed/ and the game files in .../cache-seed/game/)
+
+# 3. On the box, drop them into the data volume
+docker run --rm -v swgoh-reviewer_data:/data -v /home/ubuntu/cache-seed:/seed:ro \
+  alpine sh -c 'mkdir -p /data/game && cp /seed/game/*.json /data/game/ && cp /seed/names.json /data/'
+
+# 4. Trigger a refresh; comlink only does small member fetches now
+```
+
+Re-run after a game update (and on a fresh box) to re-seed. The caches are the
+same game data for every guild, so one seed serves all. Note: `NODE_OPTIONS`
+is **not** honored by comlink (it's a bundled binary), so heap flags are
+useless — pre-seeding is the fix.
+
 ## Notes / limits
 
 - EA rate limits: refresh is throttled to 4 req/s and runs one guild at a time;

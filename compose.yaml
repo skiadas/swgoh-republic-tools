@@ -6,7 +6,6 @@ services:
     restart: always
     environment:
       APP_NAME: swgoh-reviewer
-      NODE_OPTIONS: --max-old-space-size=512
     expose:
       - "3000"
     mem_limit: 768m
