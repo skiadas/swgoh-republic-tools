@@ -127,7 +127,7 @@ def test_settings_update(tmp_path):
     client = make_client(tmp_path)
     register_guild(client, tmp_path)
     client.post("/admin/login", data={"token": "secret"})
-    r = client.post("/admin/guilds/G1/settings", params={"tb_id": "t06D", "enabled": "0"})
+    r = client.post("/admin/guilds/G1/settings", data={"tb_id": "t06D", "enabled": "0"})
     assert r.status_code == 200
     g = client.app.state.db if hasattr(client.app.state, "db") else None
     # re-read via a fresh client connection
@@ -211,6 +211,21 @@ def test_admin_link_create(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
     client.post("/admin/login", data={"token": "secret"})
-    r = client.post("/admin/links", params={"discord_id": "d9", "allycode": "999"})
+    r = client.post("/admin/links", data={"discord_id": "d9", "allycode": "999"})
     assert r.status_code == 200
     assert client.app.state.db.get_discord_link("d9")["allycode"] == "999"
+
+
+def test_register_guild_form(tmp_path, monkeypatch):
+    """Register reads form fields (not query params) and defaults TB/name."""
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    client.post("/admin/login", data={"token": "secret"})
+    # empty form -> validation error (proves it parses form body)
+    assert client.post("/admin/guilds", data={}).status_code == 400
+    # guild_id via form body registers the guild (refresh monkeypatched)
+    monkeypatch.setattr(client.app.state.runner, "refresh_guild", lambda gid, comlink: {"guildId": gid})
+    r = client.post("/admin/guilds", data={"guild_id": "G1"})
+    assert r.status_code == 200
+    g = client.app.state.db.get_guild("G1")
+    assert g is not None and g["tb_id"] == "t05D"

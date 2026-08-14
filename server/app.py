@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import jsonschema
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from swgoh_reviewer.comlink import DEFAULT_COMLINK
@@ -354,8 +354,6 @@ def create_app(outdir=None, db_path=None, comlink=None):
 <form method="post" action="/admin/guilds">
   <input name="guild_id" placeholder="guild id (optional if ally code)">
   <input name="allycode" placeholder="member ally code">
-  <input name="name" placeholder="display name (optional)">
-  <select name="tb_id"><option value="t05D">t05D</option></select>
   <button>Register + refresh</button>
 </form>
 <h2>Link a Discord user to a player</h2>
@@ -372,7 +370,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return _page("Admin — SWGOH reviewer", body)
 
     @app.post("/admin/links")
-    def create_link(discord_id: str = Query(default=""), allycode: str = Query(default=""), _ok: bool = Depends(require_admin)):
+    def create_link(discord_id: str = Form(default=""), allycode: str = Form(default=""), _ok: bool = Depends(require_admin)):
         if not discord_id or not allycode:
             raise HTTPException(400, "need discord_id and allycode")
         db.set_discord_link(discord_id.strip(), allycode.strip())
@@ -399,10 +397,8 @@ def create_app(outdir=None, db_path=None, comlink=None):
 
     @app.post("/admin/guilds")
     def register_guild(
-        guild_id: str = Query(default=""),
-        allycode: str = Query(default=""),
-        name: str = Query(default=""),
-        tb_id: str = Query(default="t05D"),
+        guild_id: str = Form(default=""),
+        allycode: str = Form(default=""),
         _ok: bool = Depends(require_admin),
     ):
         if not guild_id and not allycode:
@@ -421,7 +417,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 raise HTTPException(502, f"could not resolve guild from ally code: {exc}") from exc
             if not guild_id:
                 raise HTTPException(404, "ally code resolved to no guild")
-        db.upsert_guild(guild_id, name=name or None, tb_id=tb_id or None)
+        db.upsert_guild(guild_id)
         try:
             runner.refresh_guild(guild_id, comlink)
         except Exception as exc:  # noqa: BLE001
@@ -447,8 +443,8 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.post("/admin/guilds/{guild_id}/settings")
     def update_settings(
         guild_id: str,
-        tb_id: str = Query(default=""),
-        enabled: str = Query(default=""),
+        tb_id: str = Form(default=""),
+        enabled: str = Form(default=""),
         _ok: bool = Depends(require_admin),
     ):
         require_guild(guild_id)
