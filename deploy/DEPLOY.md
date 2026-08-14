@@ -147,23 +147,11 @@ cat /home/ubuntu/swgoh-update.log
 docker compose --profile web pull app && docker compose --profile web up -d app
 ```
 
-> **Project name:** compose.yaml pins `name: swgoh-reviewer`. If the box's
-> existing stack was started before this pin existed, migrating requires a
-> brief stop and a **volume rename** (compose names volumes after the project,
-> so the old data volume would otherwise be orphaned):
-> ```bash
-> # 1. With the OLD compose.yaml still on disk: stop the stack and find its name
-> docker compose --profile web config --project-name     # -> OLDNAME
-> docker compose --profile web down
-> # 2. Rename the project's volumes to the pinned name (skip any that don't exist)
-> for sfx in data caddy_data caddy_config; do
->   docker volume rename "${OLDNAME}_${sfx}" "swgoh-reviewer_${sfx}" 2>/dev/null || true
-> done
-> # 3. Fetch the updated files (step 3) and start the new stack
-> docker compose --profile web up -d
-> ```
-> Volumes are preserved by the rename, so guild data and the service DB
-> survive.
+> **Project name:** compose.yaml pins `name: swgoh-reviewer`, so the update
+> script targets the stack from any directory. If a stack was started before
+> that pin existed, migrate once with a brief stop + volume rename
+> (`docker compose down`, then rename `OLDNAME_{data,caddy_data,caddy_config}`
+> → `swgoh-reviewer_{…}`) so the data volume isn't orphaned.
 
 Compose/config changes are **not** pushed to the box automatically — after a
 compose change, re-fetch the file (fetch-only setup) and recreate:
@@ -236,9 +224,10 @@ container; both are set so transient spikes spill into the host swap.
 Game-data caches are built from the **static `swgoh-utils/gamedata` repo**
 (`SWGOH_GAMEDATA_BASE`, default
 `https://raw.githubusercontent.com/swgoh-utils/gamedata/main`), **not** from
-comlink's `/data`. The first guild refresh downloads four small files into the
-data volume (`data/game/static/`); they are re-fetched only when
-`allVersions.json` reports a game/locale update, so later runs are offline.
+comlink's `/data`. The first guild refresh downloads the static gamedata files
+into the data volume (`data/game/static/` — units/categories/localization plus
+the Territory Battle sources); they are re-fetched only when `allVersions.json`
+reports a game/locale update, so later runs are offline.
 
 comlink is now only used for the small live `/player` and `/guild` calls, so
 the old "build the caches off-box or comlink OOMs" dance is gone — the box
@@ -255,28 +244,14 @@ To force a rebuild after a game update:
 uv run python build_caches.py --outdir data          # writes data/game/*.json + data/names.json
 ```
 
-If you run it elsewhere, copy `data/game/*.json` + `data/names.json` into the
-data volume (see the seed instructions below). Re-run after each game update;
-the caches are the same game data for every guild, so one build serves all.
+If you build elsewhere, copy the produced files into the data volume (one build
+serves all guilds): `scp data/game/*.json data/names.json …`, then
+`docker run --rm -v swgoh-reviewer_data:/data -v <build-dir>:/seed:ro alpine sh -c 'cp /seed/game/*.json /data/game/ && cp /seed/names.json /data/'`.
+Re-run after each game update.
 
-Note: `NODE_OPTIONS` is **not** honored by comlink (it's a bundled Node binary
-with a baked-in V8 heap cap), so heap flags are useless — routing game data
-around comlink is the fix.
-
-### Seed / copy caches into the volume (if built elsewhere)
-
-```bash
-# 1. On a dev machine: build the caches from the static repo (no comlink needed)
-uv run python build_caches.py          # writes data/game/*.json + data/names.json
-
-# 2. Copy them to the box
-scp data/game/*.json data/names.json ubuntu@<ip>:/home/ubuntu/cache-seed/game/
-# (put names.json in /home/ubuntu/cache-seed/ and the game files in .../cache-seed/game/)
-
-# 3. On the box, drop them into the data volume
-docker run --rm -v swgoh-reviewer_data:/data -v /home/ubuntu/cache-seed:/seed:ro \
-  alpine sh -c 'mkdir -p /data/game && cp /seed/game/*.json /data/game/ && cp /seed/names.json /data/'
-```
+Note: `NODE_OPTIONS` is **not** honored by comlink (a bundled Node binary with
+a baked-in V8 heap cap), so heap flags are useless — routing game data around
+comlink is the fix.
 
 ## Notes / limits
 
