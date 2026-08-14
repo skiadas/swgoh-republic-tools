@@ -39,6 +39,31 @@ calls. This matters because the comlink binary is a bundled Node app whose V8
 heap cap is baked in — the old `/data`-through-comlink cache build OOM'd it.
 Set `SWGOH_GAMEDATA_BASE=""` to fall back to comlink for game data.
 
+### Comlink & the EA protocol (background)
+
+Reverse-engineered once; recorded so it isn't re-derived. The comlink "binary"
+is **not Go** — it's a closed-source Node.js app (webpack-bundled, express)
+packaged with `@yao-pkg/pkg` into a single executable with an embedded V8
+snapshot. V8 heap flags (e.g. `--max-old-space-size`) are baked in at build time
+(`execArgv`), so neither `NODE_OPTIONS` nor Docker `mem_limit` can raise its
+heap — that is why game data comes from the static repo and comlink is kept to
+the small `/player` + `/guild` calls.
+
+It talks to EA over **gRPC (HTTP/2, `application/x-protobuf`)** to EA's
+Lightspeed/EADP platform (`RPC_URL` env; the default host is returned at runtime
+via EADP parameters, not stored in plaintext):
+- RPC services: `AuthRpc` (`authGuest`), `ContentRpc` (`getMetaData`,
+  `getGameData` in segments, `getLocalizationBundle`), `GameRpc` (player/guild/
+  search/events/leaderboards).
+- Auth: `authGuest` returns a **lightspeed token** reused across calls; the
+  anonymous-guest identity derives from `APP_NAME` + public IP (auto-detected,
+  or `UNIQUE_ID`) + port.
+- Signing: `X-Date` (13-digit ms timestamp) + body MD5 + `Authorization:
+  HMAC-SHA256 Credential=<key>,Signature=<sig>` (±30 s drift).
+- A Go replacement would need a one-time protocol capture to pin the host +
+  protobuf schemas: run comlink with `NODE_EXTRA_CA_CERTS=<your CA>` and a small
+  SNI-keyed MITM proxy.
+
 ## Setup / running
 
 - Everything runs with `uv run python <script>` (Python 3.10+; deps in
@@ -77,8 +102,6 @@ Set `SWGOH_GAMEDATA_BASE=""` to fall back to comlink for game data.
   leader). Written compactly (~3.6MB vs the old ~25MB).
 - `data/guilds/<guildId>.squads.json` — squad report (`bySquad` + `byPlayer`).
 - `data/guilds/<guildId>.squads.html` — generated dashboard.
-- `data/swgoh-gg-ops*.html` — manually saved swgoh.gg "Territory Battle Platoons"
-  pages, one per phase (the phase is detected from the planet list inside).
 - `data/rote/<tbId>.json` — merged TB doc (phases -> planets -> missions with
   deploy requirements + ops with platoons/units) built by `rote.py`. Each planet
   carries `starThresholds` (the 3 galactic-score star cutoffs) and each mission
@@ -326,6 +349,15 @@ stack regardless of the working directory.
   baseIds); comlink's `/data` also returned ~111 event/raid/journey variants
   (e.g. `THEMANDALORIANBESKARARMOR_JOURNEY_EVENT`, `..._SPEEDERBIKERAID`).
   Those never appear in player rosters, so faction matching is unaffected.
+  `names.json` is likewise the 410-unit set (was 521 when built via comlink).
+- The job runner's lock must stay **reentrant**: `refresh_guild` calls `regen`
+  while holding it, so a plain `threading.Lock` deadlocks the job worker (the
+  fetch completes but pages never regenerate). Use `threading.RLock`.
+- `rote.py` now builds the TB doc **only from the static gamedata** and errors
+  if `SWGOH_GAMEDATA_BASE=""`; the old `data/rote/*.json` comlink raws are
+  stale/unused.
+- Relic-scale calibration anchor: player `679577173`'s `GLLEIA` has raw
+  `relic.currentTier` 11 == R9 — handy for sanity-checking any new relic field.
 - Unit matching is by display name (unique per unit in practice); `baseId` is
   recorded in outputs for precision. Some units share a display name across
   baseIds (e.g. "The Mandalorian (Beskar Armor)" has journey-event variants) —

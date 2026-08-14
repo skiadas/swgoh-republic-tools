@@ -175,6 +175,40 @@ curl -fsSL -o compose.yaml "$BASE/compose.yaml"
 docker compose --profile web up -d
 ```
 
+## Verifying updates & diagnosing refreshes
+
+`/healthz` reports a **static** version string, so it can't confirm a deploy
+took effect. From the box:
+
+```bash
+cat /home/ubuntu/swgoh-update.log                       # "app updated" => new image is live
+docker compose --profile web ps                         # app + comlink running? comlink restart count high = crash loop
+docker compose --profile web logs --tail=200 app        # refresh progress "[i/50] ok NAME", "wrote …summary.json", tracebacks
+docker compose --profile web logs --tail=80 comlink     # comlink request log / errors
+```
+
+Digest check (the authoritative "is the running image the latest" test):
+
+```bash
+docker image inspect ghcr.io/skiadas/swgoh-republic-tools:latest --format '{{index .RepoDigests 0}}'
+docker buildx imagetools inspect ghcr.io/skiadas/swgoh-republic-tools:latest | sed -n 's/^Digest:[[:space:]]*//p'
+```
+
+Refresh jobs are async: the admin guild page shows the latest job's
+`status` + message (first 120 chars), and a server restart marks any stuck
+"running" jobs `interrupted`. A successful fetch writes the summary even if a
+later regeneration step fails — if the report/calculator links say "pending",
+check the job message and the app log (the ROTE calculator is skipped with a
+log note when the TB doc isn't available). The static-gamedata path can be
+confirmed by the presence of the raw files in the data volume:
+
+```bash
+docker run --rm -v swgoh-reviewer_data:/data alpine ls /data/game/static/
+# comlink + GitHub reachability:
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3200/enums
+curl -sI https://raw.githubusercontent.com/swgoh-utils/gamedata/main/allVersions.json | head -1
+```
+
 ## Memory & swap
 
 On the $7 box (1GB RAM) we recommend a 2GB swapfile so the OOM killer stays
