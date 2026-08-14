@@ -38,7 +38,7 @@ Fetch only the files the box needs (no source code):
 ```bash
 mkdir -p ~/swgoh-reviewer && cd ~/swgoh-reviewer
 BASE=https://raw.githubusercontent.com/skiadas/swgoh-republic-tools/main
-for f in compose.yaml compose.minimal.yaml .env.example Caddyfile diun.yml diun-watch.yml; do
+for f in compose.yaml compose.minimal.yaml .env.example Caddyfile; do
   curl -fsSL -o "$f" "$BASE/$f"
 done
 cp .env.example .env
@@ -119,18 +119,25 @@ Keep ~7 of these; copy off-instance if you want off-box redundancy.
 
 ## Upgrading (self-update via Diun)
 
-The compose stack includes **Diun**, which watches `ghcr.io/skiadas/swgoh-republic-tools:latest`
-every 10 minutes (File provider — it polls the registry directly, no Docker
-daemon API involved) and, on an update, runs its **Script notifier** to pull
-the new image and recreate the app container:
+The compose stack includes **Diun**, which watches the app's image every 10
+minutes and, on an update, runs its **Script notifier** to pull the new image
+and recreate the app container:
 
 ```bash
 docker compose pull app && docker compose up -d app
 ```
 
-That command runs inside the Diun container with the host Docker socket and
-`docker` CLI mounted, working in the project directory. A ~2–5s restart blip
-is expected; the `data` volume is untouched.
+All Diun configuration is via environment variables — no config files:
+- **Docker provider** (`DIUN_PROVIDERS_DOCKER=true`) discovers images from
+  running containers that carry the `diun.enable=true` label (set on the `app`
+  service only, so comlink/caddy are ignored).
+- `DIUN_WATCH_SCHEDULE="*/10 * * * *"` polls every 10 minutes.
+- The **Script notifier** runs the update command above inside the Diun
+  container (host Docker socket + `docker` CLI + project dir mounted, working
+  in `/srv/swgoh`); the compose project name is pinned (`name: swgoh-reviewer`)
+  so it targets the real stack.
+
+A ~2–5s restart blip is expected; the `data` volume is untouched.
 
 ```bash
 # verify Diun is healthy

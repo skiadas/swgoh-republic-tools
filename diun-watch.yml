@@ -1,3 +1,0 @@
-# Images Diun watches (File provider). Updates to these tags trigger the
-# Script notifier in diun.yml, which pulls + recreates the app container.
-- name: ghcr.io/skiadas/swgoh-republic-tools:latest

@@ -257,14 +257,15 @@ Tests: `tests/test_server.py` (TestClient, no comlink).
 All artifact writes (summaries, reports, HTML pages, caches) go through
 `swgoh_reviewer/io.py:atomic_write_text` (temp file + `os.replace`), so a
 reader during a nightly regenerate never sees a partial file. `compose.yaml`
-runs a `diun` service (File provider watching the app image every 10 min;
-Script notifier runs `docker compose pull && up -d app` via a mounted docker
-socket/CLI and the project dir) so the app self-updates, and hard memory
-limits (`mem_limit` + `memswap_limit`) on every service — see
-`deploy/DEPLOY.md`. Caddy is gated behind a `web` compose profile (started with
-`docker compose --profile web up -d` in the domain setup; not started in the
-minimal no-domain deploy). The compose project is pinned via top-level
-`name: swgoh-reviewer` so Diun's `docker compose` targets the same stack.
+runs a `diun` service (all config via env: Docker provider watches the app
+container via its `diun.enable` label every 10 min; the Script notifier runs
+`docker compose pull && up -d app` through a mounted docker socket/CLI and the
+project dir) so the app self-updates, and hard memory limits (`mem_limit` +
+`memswap_limit`) on every service — see `deploy/DEPLOY.md`. Caddy is gated
+behind a `web` compose profile (started with `docker compose --profile web
+up -d` in the domain setup; not started in the minimal no-domain deploy). The
+compose project is pinned via top-level `name: swgoh-reviewer` so Diun's
+`docker compose` targets the same stack.
 
 ## Verification patterns
 

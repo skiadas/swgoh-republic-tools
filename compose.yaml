@@ -14,6 +14,8 @@ services:
   app:
     image: ghcr.io/skiadas/swgoh-republic-tools:${SWGOH_IMAGE_TAG:-latest}
     restart: always
+    labels:
+      diun.enable: "true"
     environment:
       SWGOH_DATA_ROOT: /var/lib/swgoh-reviewer/data
       SWGOH_COMLINK: http://comlink:3000
@@ -57,7 +59,7 @@ services:
   diun:
     image: crazymax/diun:latest
     restart: always
-    command: serve --config /srv/swgoh/diun.yml
+    command: serve
     volumes:
       - diun_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
@@ -65,6 +67,13 @@ services:
       - ${SWGOH_APP_DIR:-.}:/srv/swgoh:ro
     environment:
       TZ: UTC
+      DIUN_PROVIDERS_DOCKER: "true"
+      DIUN_PROVIDERS_DOCKER_WATCHSTOPPED: "true"
+      DIUN_WATCH_SCHEDULE: "*/10 * * * *"
+      DIUN_DB_PATH: /data/diun.db
+      DIUN_NOTIF_SCRIPT_CMD: /bin/sh
+      DIUN_NOTIF_SCRIPT_ARGS: "-c,docker compose pull app && docker compose up -d app"
+      DIUN_NOTIF_SCRIPT_DIR: /srv/swgoh
     mem_limit: 128m
     memswap_limit: 256m
 
