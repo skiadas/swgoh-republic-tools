@@ -259,10 +259,11 @@ All artifact writes (summaries, reports, HTML pages, caches) go through
 reader during a nightly regenerate never sees a partial file. `compose.yaml`
 runs the app + comlink (+ Caddy behind a `web` compose profile) with hard
 memory limits (`mem_limit` + `memswap_limit`) — see `deploy/DEPLOY.md`.
-Self-updates are handled by a host cron (`docker compose pull app && up -d
-app` every 10 min); the compose project is pinned via top-level
-`name: swgoh-reviewer` so the cron targets the same stack regardless of the
-working directory.
+Self-updates are handled by a host cron running `update-app.sh` (every 10 min:
+compares the registry digest of the app image to the local one and pulls +
+recreates only when they differ — silent no-op otherwise); the compose project
+is pinned via top-level `name: swgoh-reviewer` so the script targets the same
+stack regardless of the working directory.
 
 ## Verification patterns
 

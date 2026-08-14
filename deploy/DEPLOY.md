@@ -38,11 +38,12 @@ Fetch only the files the box needs (no source code):
 ```bash
 mkdir -p ~/swgoh-reviewer && cd ~/swgoh-reviewer
 BASE=https://raw.githubusercontent.com/skiadas/swgoh-republic-tools/main
-for f in compose.yaml compose.minimal.yaml .env.example Caddyfile; do
+for f in compose.yaml compose.minimal.yaml .env.example Caddyfile update-app.sh; do
   curl -fsSL -o "$f" "$BASE/$f"
 done
 cp .env.example .env
 $EDITOR .env      # set secrets (see below)
+chmod +x update-app.sh
 ```
 
 Note: `~/swgoh-reviewer` becomes the compose project directory. Everything
@@ -115,27 +116,33 @@ Keep ~7 of these; copy off-instance if you want off-box redundancy.
 
 ## Upgrading (self-update via cron)
 
-The app image is built in CI on every push to `main`. A host **cron job**
-applies updates every 10 minutes:
+The app image is built in CI on every push to `main`. `update-app.sh`
+(applies updates when a new image is available) is fetched in step 3. Install
+the cron job once:
 
-```cron
-*/10 * * * * cd /home/ubuntu && docker compose pull app >> /home/ubuntu/swgoh-update.log 2>&1 && docker compose up -d app >> /home/ubuntu/swgoh-update.log 2>&1
+```bash
+chmod +x update-app.sh          # already done in step 3
+crontab -e
+# add:  */10 * * * * /home/ubuntu/update-app.sh
 ```
 
-- `docker compose pull app` fetches the new `:latest`; `up -d app` recreates
-  the container only when its image changed.
-- Adjust `cd` to your compose project directory.
-- The compose project name is pinned (`name: swgoh-reviewer`), so the cron's
+How it works (details are also in the script's header comment):
+- Every 10 minutes it compares the registry digest of the app image against
+  the locally running image's digest; when they're equal it exits silently
+  (nothing written to the log). When they differ, it pulls and recreates the
+  app container, logging to `swgoh-update.log`.
+- Adjust `PROJECT_DIR` at the top of the script (default `/home/ubuntu`) if
+  your compose project lives elsewhere.
+- The compose project name is pinned (`name: swgoh-reviewer`), so the script's
   `docker compose` targets the running stack regardless of directory.
 - A ~2–5s restart blip is expected; the `data` volume is untouched.
 
-Verify with:
+Verify / force:
 ```bash
 docker compose --profile web ps
 cat /home/ubuntu/swgoh-update.log
-```
-To apply an update immediately (or after fetching a new compose file):
-```bash
+/home/ubuntu/update-app.sh       # run once manually
+# To apply an update immediately (or after fetching a new compose file):
 docker compose --profile web pull app && docker compose --profile web up -d app
 ```
 
