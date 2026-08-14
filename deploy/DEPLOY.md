@@ -56,7 +56,6 @@ SWGOH_APP_SECRET=<long random string>
 SWGOH_ADMIN_DISCORD_ID=<your discord user id>
 SITE_DOMAIN=reviewer.example.com
 SWGOH_IMAGE_TAG=latest
-SWGOH_APP_DIR=~/swgoh-reviewer   # optional; defaults to the project dir
 SWGOH_DISCORD_CLIENT_ID=
 SWGOH_DISCORD_CLIENT_SECRET=
 SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
@@ -68,9 +67,6 @@ SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
 - DNS: add an A record for `SITE_DOMAIN` pointing at the static IP.
 - `SWGOH_IMAGE_TAG` picks which container image to run (default `latest`);
   set it to a git sha or a `v*` tag to pin/roll back (see "Versioning").
-- `SWGOH_APP_DIR` is the host path Diun binds into itself to run
-  `docker compose`; it defaults to the project directory (`.`), so you only
-  set it if you run compose from somewhere else.
 
 ## 4. Run
 
@@ -117,32 +113,30 @@ Keep ~7 of these; copy off-instance if you want off-box redundancy.
   ```
 - The app reports its version at `GET /healthz`.
 
-## Upgrading (self-update via Diun)
+## Upgrading (self-update via cron)
 
-The compose stack includes **Diun**, which watches the app's image every 10
-minutes and, on an update, runs its **Script notifier** to pull the new image
-and recreate the app container:
+The app image is built in CI on every push to `main`. A host **cron job**
+applies updates every 10 minutes:
 
-```bash
-docker compose pull app && docker compose up -d app
+```cron
+*/10 * * * * cd /home/ubuntu && docker compose pull app >> /home/ubuntu/swgoh-update.log 2>&1 && docker compose up -d app >> /home/ubuntu/swgoh-update.log 2>&1
 ```
 
-All Diun configuration is via environment variables — no config files:
-- **Docker provider** (`DIUN_PROVIDERS_DOCKER=true`) discovers images from
-  running containers that carry the `diun.enable=true` label (set on the `app`
-  service only, so comlink/caddy are ignored).
-- `DIUN_WATCH_SCHEDULE="*/10 * * * *"` polls every 10 minutes.
-- The **Script notifier** runs the update command above inside the Diun
-  container (host Docker socket + `docker` CLI + project dir mounted, working
-  in `/srv/swgoh`); the compose project name is pinned (`name: swgoh-reviewer`)
-  so it targets the real stack.
+- `docker compose pull app` fetches the new `:latest`; `up -d app` recreates
+  the container only when its image changed.
+- Adjust `cd` to your compose project directory.
+- The compose project name is pinned (`name: swgoh-reviewer`), so the cron's
+  `docker compose` targets the running stack regardless of directory.
+- A ~2–5s restart blip is expected; the `data` volume is untouched.
 
-A ~2–5s restart blip is expected; the `data` volume is untouched.
-
+Verify with:
 ```bash
-# verify Diun is healthy
-docker compose --profile web exec diun diun healthcheck
-docker compose --profile web logs diun --tail 20
+docker compose --profile web ps
+cat /home/ubuntu/swgoh-update.log
+```
+To apply an update immediately (or after fetching a new compose file):
+```bash
+docker compose --profile web pull app && docker compose --profile web up -d app
 ```
 
 > **Project name:** compose.yaml pins `name: swgoh-reviewer`. If the box's
@@ -178,13 +172,11 @@ docker compose --profile web up -d
 On the $7 box (1GB RAM) we recommend a 2GB swapfile so the OOM killer stays
 away during nightlies, and the compose services carry hard memory limits
 (RAM + swap ceiling so a container can spill into swap):
-
 | service | mem_limit | memswap_limit |
 |---|---|---|
 | app | 512m | 1g |
 | comlink | 384m | 768m |
 | caddy | 128m | 256m |
-| diun | 128m | 256m |
 
 ```bash
 # swap setup (once)
