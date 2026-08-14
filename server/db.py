@@ -125,3 +125,9 @@ class DB:
         if guild_id is None:
             return self._row("SELECT * FROM job_log ORDER BY id DESC LIMIT 1")
         return self._row("SELECT * FROM job_log WHERE guild_id = ? ORDER BY id DESC LIMIT 1", (guild_id,))
+
+    def mark_running_interrupted(self):
+        """Mark any 'running' jobs as interrupted (a restart killed their worker)."""
+        self._exec(
+            "UPDATE job_log SET status = 'interrupted', message = 'interrupted by server restart' WHERE status = 'running'"
+        )

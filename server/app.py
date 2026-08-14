@@ -105,6 +105,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @asynccontextmanager
     async def lifespan(app):
         nonlocal thread
+        db.mark_running_interrupted()
         if os.environ.get("SWGOH_NIGHTLY", "0") == "1":
             thread = threading.Thread(
                 target=runner.nightly_loop,
@@ -214,12 +215,15 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return _page("Signed in", body)
 
     @app.get("/", response_class=HTMLResponse)
-    def index():
+    def index(request: Request):
+        admin = ""
+        if is_admin(request):
+            admin = '<div class="card"><a href="/admin">Admin</a></div>'
         rows = [g for g in db.list_guilds() if g["enabled"]]
         if not rows:
-            body = '<div class="card">No guilds yet.</div>'
+            body = admin + '<div class="card">No guilds yet.</div>'
         else:
-            body = "<table><tr><th>Guild</th><th>TB</th><th>Last refresh</th><th></th></tr>"
+            body = admin + "<table><tr><th>Guild</th><th>TB</th><th>Last refresh</th><th></th></tr>"
             for g in rows:
                 body += (
                     f"<tr><td>{_esc(guild_display(g))}</td><td>{_esc(g['tb_id'])}</td>"
@@ -251,6 +255,10 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 body += f' · <span class="muted">{_esc(job["message"][:120])}</span>'
             body += "</div>"
         body += f'<div class="card">{links}</div>'
+        if is_admin(request):
+            body += f"""
+<div class="card"><a href="/admin/g/{guild_id}">Manage</a> · <a href="/admin">Admin</a>
+<form method="post" action="/admin/guilds/{guild_id}/refresh" style="display:inline"><button>Refresh now</button></form></div>"""
         # officer controls
         session = session_user(request)
         roles = auth.roles_for(db, outdir, session["discord_id"]) if session else {}
@@ -414,6 +422,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 jobline += f' · <span class="muted">{_esc(job["message"][:120])}</span>'
             jobline += "</div>"
         body = f"""
+<div class="card"><a href="/admin">&larr; Admin</a> · <a href="/g/{guild_id}">View public page</a></div>
 <div class="card"><b>{_esc(guild_display(g))}</b> <span class="muted">({_esc(g['id'])})</span><br>
   TB <b>{_esc(g['tb_id'])}</b> · enabled <b>{'yes' if g['enabled'] else 'no'}</b> · last refresh {_esc((g['last_refresh'] or '—')[:19])}
   <br>{links}</div>
@@ -455,13 +464,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 raise HTTPException(404, "ally code resolved to no guild")
         db.upsert_guild(guild_id, name=name)
         runner.enqueue("refresh", guild_id, lambda: runner.refresh_guild(guild_id, comlink))
-        return RedirectResponse(f"/g/{guild_id}", status_code=303)
+        return RedirectResponse(f"/admin/g/{guild_id}", status_code=303)
 
     @app.post("/admin/guilds/{guild_id}/refresh")
     def refresh_guild(guild_id: str, _ok: bool = Depends(require_admin)):
         require_guild(guild_id)
         runner.enqueue("refresh", guild_id, lambda: runner.refresh_guild(guild_id, comlink))
-        return RedirectResponse(f"/g/{guild_id}", status_code=303)
+        return RedirectResponse(f"/admin/g/{guild_id}", status_code=303)
 
     @app.post("/admin/guilds/{guild_id}/regen")
     def regen_guild(guild_id: str, _ok: bool = Depends(require_admin)):
@@ -471,7 +480,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
             guild_id,
             lambda: runner.regen(guild_id, tb_id=g["tb_id"] or "t05D", squads_json=g.get("squads_json")),
         )
-        return RedirectResponse(f"/g/{guild_id}", status_code=303)
+        return RedirectResponse(f"/admin/g/{guild_id}", status_code=303)
 
     @app.post("/admin/guilds/{guild_id}/settings")
     def update_settings(

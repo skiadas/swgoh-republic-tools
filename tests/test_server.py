@@ -226,7 +226,7 @@ def test_register_guild_form(tmp_path, monkeypatch):
     # guild_id via form body registers the guild and redirects immediately
     monkeypatch.setattr(client.app.state.runner, "refresh_guild", lambda gid, comlink: {"guildId": gid})
     r = client.post("/admin/guilds", data={"guild_id": "G1"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/g/G1"
+    assert r.status_code == 303 and r.headers["location"] == "/admin/g/G1"
     g = client.app.state.db.get_guild("G1")
     assert g is not None and g["tb_id"] == "t05D"
     # a "running" job row was logged (the async worker may or may not have run yet)
@@ -241,8 +241,19 @@ def test_admin_refresh_async(tmp_path):
     register_guild(client, tmp_path)
     client.post("/admin/login", data={"token": "secret"})
     r = client.post("/admin/guilds/G1/refresh", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/g/G1"
+    assert r.status_code == 303 and r.headers["location"] == "/admin/g/G1"
     assert client.app.state.db.latest_job("G1")["kind"] == "refresh"
     r = client.post("/admin/guilds/G1/regen", follow_redirects=False)
-    assert r.status_code == 303
+    assert r.status_code == 303 and r.headers["location"] == "/admin/g/G1"
     assert client.app.state.db.latest_job("G1")["kind"] == "regen"
+
+
+def test_startup_marks_stale_running_jobs(tmp_path):
+    """A restart marks orphaned 'running' jobs as interrupted (no forever-pending)."""
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    client.app.state.db.log_job("G1", "refresh", "running", started_at="2026-01-01T00:00:00")
+    app2 = create_app(outdir=tmp_path, db_path=tmp_path / "service.db", comlink="http://localhost:3200")
+    with TestClient(app2) as c2:
+        job = c2.app.state.db.latest_job("G1")
+        assert job["status"] == "interrupted"
