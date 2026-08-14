@@ -8,15 +8,22 @@ DB); admin actions require SWGOH_ADMIN_TOKEN. Discord OAuth roles will layer
 on top of the same guild registry later.
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Make the repo root importable when run as `python server/app.py` (sys.path[0]
+# would otherwise be `server/`); the gitignored local `.env` is loaded in
+# `__main__` so `SWGOH_PORT` etc. apply for local dev.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import hmac
 import html
 import json
-import os
 import re
 import threading
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import jsonschema
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
@@ -505,5 +512,16 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
+
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if env_path.exists():
+        for raw in env_path.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            if key and key not in os.environ:
+                os.environ[key] = value.strip()
 
     uvicorn.run("server.app:app", host="0.0.0.0", port=int(os.environ.get("SWGOH_PORT", "8000")), reload=False)

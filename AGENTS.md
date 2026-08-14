@@ -63,8 +63,9 @@ caches), `squad_report.py` (squad report), `render_report.py` (HTML dashboard),
   admin's "Regenerate pages" runs all three.
 - **Rebuild a summary offline:** `guild_summary.py <guild_id>` from
   `data/<allyCode>.json` raw rosters + caches (dev tool).
-- **Run the web app locally:** `uv run uvicorn server.app:app` (or
-  `uv run python server/app.py`).
+- **Run the web app locally:** `uv run python server/app.py` (reads `SWGOH_PORT`,
+  default 8000 — the repo's gitignored `.env` sets it to 8500) or
+  `uv run uvicorn server.app:app --port <port>`.
 - **Deploy:** push to `main` → CI builds the image → the box's `update-app.sh`
   cron (every 10 min) pulls + recreates the app. See `deploy/DEPLOY.md` for
   setup and diagnostics.
