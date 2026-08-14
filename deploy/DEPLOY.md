@@ -60,6 +60,7 @@ SWGOH_IMAGE_TAG=latest
 SWGOH_DISCORD_CLIENT_ID=
 SWGOH_DISCORD_CLIENT_SECRET=
 SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
+# SWGOH_GAMEDATA_BASE=            # optional; default = swgoh-utils/gamedata on GitHub (blank disables static game data)
 ```
 
 - Discord: create an app in the Discord Developer Portal → OAuth2 →
@@ -196,17 +197,42 @@ echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/90-swappiness.conf && sudo sysc
 Note: `mem_limit` without `memswap_limit` would disable swap for that
 container; both are set so transient spikes spill into the host swap.
 
-## Seed the game caches (once per game version)
+## Game data (static source, no comlink OOM)
 
-The first guild refresh asks comlink to build the game-data caches (the full
-localization + units + categories), which spikes comlink's Node heap past the
-$7 box's memory limit and OOMs it (comlink crash-loops; refreshes error with
-"Server disconnected without sending a response"). Avoid the heavy build on
-the box by building the caches once on a machine with plenty of RAM and
-copying them in:
+Game-data caches are built from the **static `swgoh-utils/gamedata` repo**
+(`SWGOH_GAMEDATA_BASE`, default
+`https://raw.githubusercontent.com/swgoh-utils/gamedata/main`), **not** from
+comlink's `/data`. The first guild refresh downloads four small files into the
+data volume (`data/game/static/`); they are re-fetched only when
+`allVersions.json` reports a game/locale update, so later runs are offline.
+
+comlink is now only used for the small live `/player` and `/guild` calls, so
+the old "build the caches off-box or comlink OOMs" dance is gone — the box
+builds (or updates) its own caches on refresh. Each unit in
+`data/game/units.json` carries a precomputed `name` + `factions` projection,
+so summary building never loads the large `localization.json` (only `tb.py`
+reads it); `data/game/factions.json` holds the small visible-category name
+list used by the squad report.
+
+To force a rebuild after a game update:
 
 ```bash
-# 1. On a dev machine with a local swgoh-comlink running: build the caches
+# on the box, or any machine with the repo checked out:
+uv run python build_caches.py --outdir data          # writes data/game/*.json + data/names.json
+```
+
+If you run it elsewhere, copy `data/game/*.json` + `data/names.json` into the
+data volume (see the seed instructions below). Re-run after each game update;
+the caches are the same game data for every guild, so one build serves all.
+
+Note: `NODE_OPTIONS` is **not** honored by comlink (it's a bundled Node binary
+with a baked-in V8 heap cap), so heap flags are useless — routing game data
+around comlink is the fix.
+
+### Seed / copy caches into the volume (if built elsewhere)
+
+```bash
+# 1. On a dev machine: build the caches from the static repo (no comlink needed)
 uv run python build_caches.py          # writes data/game/*.json + data/names.json
 
 # 2. Copy them to the box
@@ -216,14 +242,7 @@ scp data/game/*.json data/names.json ubuntu@<ip>:/home/ubuntu/cache-seed/game/
 # 3. On the box, drop them into the data volume
 docker run --rm -v swgoh-reviewer_data:/data -v /home/ubuntu/cache-seed:/seed:ro \
   alpine sh -c 'mkdir -p /data/game && cp /seed/game/*.json /data/game/ && cp /seed/names.json /data/'
-
-# 4. Trigger a refresh; comlink only does small member fetches now
 ```
-
-Re-run after a game update (and on a fresh box) to re-seed. The caches are the
-same game data for every guild, so one seed serves all. Note: `NODE_OPTIONS`
-is **not** honored by comlink (it's a bundled binary), so heap flags are
-useless — pre-seeding is the fix.
 
 ## Notes / limits
 

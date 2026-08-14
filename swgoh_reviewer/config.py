@@ -3,14 +3,19 @@
 
 All paths and endpoints are overridable via env vars so the same code runs
 locally, in tests, and in the hosted service:
-    SWGOH_DATA_ROOT   data directory (default: <project>/data)
-    SWGOH_COMLINK     swgoh-comlink base URL (default: http://localhost:3200)
+    SWGOH_DATA_ROOT       data directory (default: <project>/data)
+    SWGOH_COMLINK         swgoh-comlink base URL (default: http://localhost:3200)
+    SWGOH_GAMEDATA_BASE   swgoh-utils/gamedata base URL; set to "" to disable the
+                          static game-data source and fall back to comlink
+                          (default: https://raw.githubusercontent.com/swgoh-utils/gamedata/main)
 """
 
 import os
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
+
+GAMEDATA_BASE = "https://raw.githubusercontent.com/swgoh-utils/gamedata/main"
 
 
 def data_root() -> Path:
@@ -19,3 +24,8 @@ def data_root() -> Path:
 
 def comlink_url() -> str:
     return os.environ.get("SWGOH_COMLINK", "http://localhost:3200")
+
+
+def gamedata_base_url() -> str:
+    """Base URL of the static swgoh-utils/gamedata repo ("" disables it)."""
+    return os.environ.get("SWGOH_GAMEDATA_BASE", GAMEDATA_BASE)

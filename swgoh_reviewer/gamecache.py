@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
-"""Build and cache compact game-data maps from a local swgoh-comlink service.
+"""Build and cache compact game-data maps.
 
 Caches live under <outdir>/game/:
     localization.json   key->value text map (category display names, TB text)
-    units.json          baseId -> {combatType, categories, leader}
+    units.json          baseId -> {combatType, categories, leader, name, factions}
     categories.json     categoryId -> {descKey, visible}
+    factions.json       sorted list of visible, localized category names
 
 (The old skills.json cache is gone: nothing reads ability/zeta/omicron data.)
 
+The per-unit `name` and `factions` (visible localized category names) are
+projected into `units.json` at build time, so summary building only ever loads
+that small file — the large localization.json is touched only while building
+the projection, not while reading it.
+
 Caches are rebuilt after a game update with --refresh-game on the scripts that
-use them, or by calling ensure_caches(comlink, outdir, refresh=True).
+use them, or by calling ensure_caches(source, outdir, refresh=True). The
+`source` is either a comlink-python client or a swgoh_reviewer.static_gamedata
+.StaticGameData (duck-typed drop-in), and None means load from disk only.
 """
 
 import json
@@ -32,17 +40,33 @@ def build_localization(comlink):
     return entries
 
 
-def build_units(comlink):
+def build_units(source, localization, categories):
+    """Project each unit to {combatType, categories, leader, name, factions}.
+
+    `factions` is the sorted, deduped set of localized names of the unit's
+    visible categories; `name` is the localized display name.
+    """
     out = {}
-    for unit in comlink.get_game_data(include_pve_units=False, items="units").get("units", []):
+    for unit in source.get_game_data(include_pve_units=False, items="units").get("units", []):
         base_id = unit.get("baseId")
         if not base_id:
             continue
         cats = unit.get("categoryId") or []
+        factions = []
+        for cid in cats:
+            cdef = categories.get(cid)
+            if not cdef or not cdef.get("visible") or not cdef.get("descKey"):
+                continue
+            name = localization.get(cdef["descKey"])
+            if name:
+                factions.append(name)
+        name_key = unit.get("nameKey")
         out[base_id] = {
             "combatType": unit.get("combatType"),
             "categories": cats,
             "leader": bool(unit.get("leaderAbilityRef")) or ("role_leader" in cats),
+            "name": localization.get(name_key, base_id) if name_key else base_id,
+            "factions": sorted(set(factions)),
         }
     return out
 
@@ -54,24 +78,86 @@ def build_categories(comlink):
     return out
 
 
-def ensure_caches(comlink, outdir, refresh=False):
+def build_factions(localization, categories):
+    """Sorted, deduped localized names of every visible category."""
+    names = set()
+    for cdef in categories.values():
+        if cdef.get("visible") and cdef.get("descKey"):
+            name = localization.get(cdef["descKey"])
+            if name:
+                names.add(name)
+    return sorted(names)
+
+
+def _units_projection_ok(units):
+    """Whether a units.json dict carries the current name/factions projection.
+
+    An empty dict or a pre-projection layout (entries without `factions`) is
+    treated as stale so it gets rebuilt rather than silently yielding empty
+    factions.
+    """
+    if not isinstance(units, dict):
+        return False
+    for entry in units.values():
+        if not isinstance(entry, dict):
+            return False
+        return "factions" in entry
+    return False
+
+
+def ensure_caches(source, outdir, refresh=False, names=None):
     """Load the game-data caches, building any that are missing (or all, if
-    refresh=True) using comlink. Pass comlink=None to only load from disk."""
+    refresh=True) using `source` (comlink or StaticGameData). Pass None to only
+    load from disk. `names` selects which caches to return (default: all).
+
+    Because units.json carries the name/faction projection, loading just
+    `units` (the summary path) never reads the large localization file. A
+    pre-projection units cache (e.g. from before this change) is detected and
+    rebuilt automatically.
+    """
+    names = names or CACHE_NAMES
     outdir = Path(outdir) / GAME_CACHE_DIR
 
-    def get(name, builder):
+    def get(name, builder, valid=None):
         path = outdir / f"{name}.json"
         if not refresh and path.exists():
-            return json.loads(path.read_text())
-        if comlink is None:
-            raise RuntimeError(f"cache {name}.json is missing and no comlink was provided")
+            data = json.loads(path.read_text())
+            if valid is None or valid(data):
+                return data
+        if source is None:
+            raise RuntimeError(f"cache {name}.json is missing or stale and no game-data source was provided")
         data = retry(builder)
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, json.dumps(data, separators=(",", ":"), ensure_ascii=False))
         return data
 
-    return {
-        "localization": get("localization", lambda: build_localization(comlink)),
-        "units": get("units", lambda: build_units(comlink)),
-        "categories": get("categories", lambda: build_categories(comlink)),
-    }
+    result = {}
+    want_units = "units" in names
+    if want_units:
+        # Projection intermediates (localization + categories) are only needed
+        # when the units cache itself is missing or stale.
+        units_path = outdir / "units.json"
+        stale = (
+            not refresh
+            and units_path.exists()
+            and not _units_projection_ok(json.loads(units_path.read_text()))
+        )
+        if refresh or not units_path.exists() or stale:
+            result["localization"] = get("localization", lambda: build_localization(source))
+            result["categories"] = get("categories", lambda: build_categories(source))
+        result["units"] = get(
+            "units",
+            lambda: build_units(source, result["localization"], result["categories"]),
+            valid=_units_projection_ok,
+        )
+    if "localization" in names and "localization" not in result:
+        result["localization"] = get("localization", lambda: build_localization(source))
+    if "categories" in names and "categories" not in result:
+        result["categories"] = get("categories", lambda: build_categories(source))
+
+    # Refresh the small derived faction-name list whenever both are in hand.
+    if "localization" in result and "categories" in result:
+        factions = build_factions(result["localization"], result["categories"])
+        atomic_write_text(outdir / "factions.json", json.dumps(factions, separators=(",", ":"), ensure_ascii=False))
+
+    return {name: result[name] for name in names}

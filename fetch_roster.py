@@ -21,7 +21,8 @@ from swgoh_reviewer.comlink import (
     retry,
     summarize,
 )
-from swgoh_reviewer.config import data_root
+from swgoh_reviewer.config import data_root, gamedata_base_url
+from swgoh_reviewer.static_gamedata import StaticGameData
 
 
 def main(argv=None):
@@ -36,7 +37,8 @@ def main(argv=None):
     outdir.mkdir(parents=True, exist_ok=True)
 
     with SwgohComlink(url=args.comlink) as comlink:
-        name_map = retry(lambda: build_name_map(comlink, outdir, use_cache=not args.refresh_names))
+        game_source = StaticGameData(outdir=outdir) if gamedata_base_url() else comlink
+        name_map = retry(lambda: build_name_map(game_source, outdir, use_cache=not args.refresh_names))
         print(f"name map: {len(name_map)} units")
         for allycode in args.allycodes:
             player, outpath = retry(

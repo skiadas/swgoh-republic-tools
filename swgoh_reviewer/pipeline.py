@@ -24,7 +24,9 @@ from swgoh_reviewer.comlink import (
     relic_level,
     retry,
 )
+from swgoh_reviewer.config import gamedata_base_url
 from swgoh_reviewer.io import atomic_write_text
+from swgoh_reviewer.static_gamedata import StaticGameData
 from swgoh_reviewer import gamecache
 
 
@@ -40,30 +42,20 @@ def build_unit(unit, caches):
 
     Note: ability/zeta/omicron data is deliberately not stored — no view
     consumes it (was ~30% of the summary's size). leader/gearLevel are kept.
+    `name`/`factions` come pre-projected from the units cache.
     """
     base_id = unit.get("baseId") or ""
     udef = caches["units"].get(base_id, {})
-    cat_defs = caches["categories"]
-    loc = caches["localization"]
-
-    factions = []
-    for cid in udef.get("categories") or []:
-        cdef = cat_defs.get(cid)
-        if not cdef or not cdef.get("visible"):
-            continue
-        name = loc.get(cdef.get("descKey")) if cdef.get("descKey") else None
-        if name:
-            factions.append(name)
 
     return {
-        "name": unit.get("name") or base_id,
+        "name": unit.get("name") or udef.get("name") or base_id,
         "baseId": base_id,
         "combatType": "ship" if udef.get("combatType") == 2 else "character",
         "gearLevel": unit.get("currentTier"),
         "relicLevel": relic_level(unit),
         "rarity": unit.get("currentRarity"),
         "leader": bool(udef.get("leader")),
-        "factions": sorted(set(factions)),
+        "factions": udef.get("factions") or [],
     }
 
 
@@ -133,8 +125,12 @@ def refresh_guild(
             guild_id, guild_name, _ = retry(lambda: resolve_guild(comlink, allycode))
             progress(f"resolved guild: {guild_name} ({guild_id})")
 
-        name_map = retry(lambda: build_name_map(comlink, outdir, use_cache=not refresh_names))
-        caches = gamecache.ensure_caches(comlink, outdir, refresh=refresh_game)
+        # Game-data caches come from the static swgoh-utils/gamedata repo (no
+        # comlink, no memory spike); comlink is only used for live player/guild
+        # data. Set SWGOH_GAMEDATA_BASE="" to fall back to comlink for game data.
+        game_source = StaticGameData(outdir=outdir) if gamedata_base_url() else comlink
+        name_map = retry(lambda: build_name_map(game_source, outdir, use_cache=not refresh_names))
+        caches = gamecache.ensure_caches(game_source, outdir, refresh=refresh_game, names=("units",))
 
         limiter.wait()
         guild, guild_name, members = get_guild_members(comlink, guild_id)
@@ -224,7 +220,7 @@ def summarize_from_files(outdir, guild_id, pretty=False, progress=print):
         progress(f"no manifest at {manifest_path}", file=sys.stderr)
         return None
     manifest = json.loads(manifest_path.read_text())
-    caches = gamecache.ensure_caches(None, outdir, refresh=False)
+    caches = gamecache.ensure_caches(None, outdir, refresh=False, names=("units",))
 
     members_out = []
     for member in manifest.get("members", []):

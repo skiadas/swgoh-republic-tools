@@ -8,7 +8,7 @@ from swgoh_reviewer import pipeline
 def make_caches():
     return {
         "localization": {"CAT_X": "Sith"},
-        "units": {"UNIT_X": {"combatType": 1, "categories": ["cat1"], "leader": True}},
+        "units": {"UNIT_X": {"combatType": 1, "categories": ["cat1"], "leader": True, "name": "Unit X", "factions": ["Sith"]}},
         "categories": {"cat1": {"descKey": "CAT_X", "visible": True}},
     }
 
@@ -104,7 +104,10 @@ def test_summarize_from_files(tmp_path):
     guild_dir = tmp_path / "guilds"
     guild_dir.mkdir()
     (tmp_path / "game").mkdir()
-    for name in ("localization", "units", "categories"):
+    (tmp_path / "game" / "units.json").write_text(
+        json.dumps({"A": {"combatType": 1, "categories": [], "leader": False, "name": "A", "factions": []}})
+    )
+    for name in ("localization", "categories"):
         (tmp_path / "game" / f"{name}.json").write_text("{}")
     guild_dir.joinpath(f"{gid}.json").write_text(
         json.dumps(

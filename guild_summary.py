@@ -14,17 +14,25 @@ Usage:
 import argparse
 import sys
 
-from swgoh_reviewer import pipeline
-from swgoh_reviewer.config import data_root
+from swgoh_reviewer import gamecache, pipeline
+from swgoh_reviewer.config import data_root, gamedata_base_url
+from swgoh_reviewer.static_gamedata import StaticGameData
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("guild_id")
     parser.add_argument("--outdir", default=str(data_root()), help="output directory")
-    parser.add_argument("--refresh-game", action="store_true", help="rebuild game-data caches")
+    parser.add_argument("--refresh-game", action="store_true", help="rebuild game-data caches from the static gamedata repo")
     parser.add_argument("--pretty", action="store_true", help="write indented JSON (debug)")
     args = parser.parse_args(argv)
+
+    if args.refresh_game:
+        if not gamedata_base_url():
+            parser.error("static game data is disabled (SWGOH_GAMEDATA_BASE unset/empty)")
+        static = StaticGameData(outdir=args.outdir)
+        static.ensure_raw(refresh=True)
+        gamecache.ensure_caches(static, args.outdir, refresh=True)
 
     summary = pipeline.summarize_from_files(args.outdir, args.guild_id, pretty=args.pretty)
     return 0 if summary else 2

@@ -2,19 +2,21 @@
 
 Guidance for working in this repository. It downloads and reports on player
 data for STAR WARS: Galaxy of Heroes (SWGOH) using a self-hosted
-`swgoh-comlink` service (a local gateway to EA's read-only game APIs). No
-swgoh.gg scraping.
+`swgoh-comlink` service (a local gateway to EA's read-only game APIs) plus the
+static game-data files from the `swgoh-utils/gamedata` repo. No swgoh.gg
+scraping.
 
 ## Pipeline
 
 All logic lives in the `swgoh_reviewer/` package; the top-level `*.py`
 scripts are thin CLI wrappers. Data paths are env-driven (`SWGOH_DATA_ROOT`,
-`SWGOH_COMLINK` — see `swgoh_reviewer/config.py`).
+`SWGOH_COMLINK`, `SWGOH_GAMEDATA_BASE` — see `swgoh_reviewer/config.py`).
 
 ```
 start_comlink.sh            run swgoh-comlink (Docker) once
 fetch_guild.py <allycode>   fetch a guild and write its summary, streaming
 guild_summary.py <guild_id> rebuild a summary from existing raw rosters (dev)
+build_caches.py             build game-data caches from the static gamedata repo
 squad_report.py <guild_id>  evaluate squads.json requirements vs the summary
 render_report.py <guild_id> emit a self-contained HTML dashboard of the report
 rote.py [<tb_id>]           document a Territory Battle (default ROTE t05D)
@@ -27,13 +29,25 @@ entry, and the raw payload is discarded — no `data/<allyCode>.json` raw roster
 are persisted (was ~330MB/guild). The guild manifest carries `memberLevel`
 roles; the raw `.guild.json` response is not kept.
 
+### Game data: static source, not comlink
+
+Game-data caches (`units`, `categories`, `localization`, `names`) are built
+from the `swgoh-utils/gamedata` GitHub repo via `swgoh_reviewer/static_gamedata.py`
+(`StaticGameData`, a duck-typed drop-in for the game-data methods of the
+comlink-python API). comlink is only used for the live `/player` and `/guild`
+calls. This matters because the comlink binary is a bundled Node app whose V8
+heap cap is baked in — the old `/data`-through-comlink cache build OOM'd it.
+Set `SWGOH_GAMEDATA_BASE=""` to fall back to comlink for game data.
+
 ## Setup / running
 
 - Everything runs with `uv run python <script>` (Python 3.10+; deps in
   `pyproject.toml`, locked by `uv.lock`). Tests: `uv run pytest`.
-- The only network dependency is `swgoh-comlink`, started via
-  `./start_comlink.sh` (Docker, listens on `http://localhost:3200`). Most
-  scripts are offline; only first-time game-data cache builds contact it.
+- The only live network dependency is `swgoh-comlink`, started via
+  `./start_comlink.sh` (Docker, listens on `http://localhost:3200`), used for
+  the `/player` and `/guild` calls. Game-data caches come from the static
+  `swgoh-utils/gamedata` repo (see below) and are downloaded once, then
+  cached under `data/game/static/` for offline use.
 - macOS: the prebuilt comlink *binary* is broken on this machine (pkg/V8
   mismatch) — use the Docker container.
 
@@ -42,9 +56,17 @@ roles; the raw `.guild.json` response is not kept.
 - `data/<allyCode>.json` — full player rosters kept only by `guild_summary.py`
   (offline rebuild); `fetch_guild.py` no longer writes these.
 - `data/names.json` — `baseId -> display name` cache for all units.
-- `data/game/` — compact game-data caches built from comlink:
-  `units.json`, `categories.json`, `localization.json` (skills.json was dropped —
-  nothing reads ability/zeta/omicron data anymore).
+- `data/game/` — compact game-data caches: `units.json`, `categories.json`,
+  `localization.json`, `factions.json` (skills.json was dropped — nothing reads
+  ability/zeta/omicron data anymore). Built from the static gamedata repo, not
+  comlink. `units.json` entries carry the precomputed `name` + `factions`
+  (visible localized category names) projection, so summary building only loads
+  that small file — the large `localization.json` is read only by `tb.py`.
+  `factions.json` is the sorted list of visible localized category names used
+  by `squad_report.py` for tag validation.
+- `data/game/static/` — raw swgoh-utils/gamedata downloads cached for offline
+  rebuilds: `all-versions.json` (version stamp), `units.json.br`,
+  `category.json`, `Loc_ENG_US.txt.json.br`.
 - `data/guilds/<guildId>.json` — guild manifest (member list, GP, statuses,
   `memberLevel` roles).
 - `data/guilds/<guildId>.summary.json` — compact per-member roster summary
@@ -218,8 +240,10 @@ dark/neutral/light/specials order. Sanity reference (jsdom-verified): 100% CM
 - `fetch_guild.py --limit N` for a small test batch; `--max-rps` (default 4)
   throttles to stay under EA's caps (~20 req/s total, ~100 for /player).
 - `fetch_guild.py --refresh-game` and `guild_summary.py --refresh-game`
-  rebuild `data/game/` caches after a game update. The report scripts only
-  need comlink for this; otherwise fully offline.
+  re-check `allVersions.json` against the cached stamp and re-download +
+  rebuild `data/game/` caches only when the game changed. `build_caches.py`
+  does the same without a guild. None of these need comlink; `rote.py
+  --refresh` still re-fetches its comlink raws.
 
 ## Web service (`server/`)
 
@@ -229,6 +253,8 @@ token-gated admin. Run locally with `uv run uvicorn server.app:app` (or
 
 - `SWGOH_DATA_ROOT` — data directory (shared with the CLI tools).
 - `SWGOH_COMLINK` — swgoh-comlink URL (fetch/refresh only).
+- `SWGOH_GAMEDATA_BASE` — swgoh-utils/gamedata base URL for game-data caches
+  (set to `""` to fall back to comlink for game data).
 - `SWGOH_ADMIN_TOKEN` — bearer/query token for `/admin*` (required for admin).
 - `SWGOH_NIGHTLY=1` — enable the nightly refresh loop (`SWGOH_REFRESH_HOUR`,
   default 4 UTC) which fetches each enabled guild via comlink then regenerates
@@ -283,6 +309,14 @@ stack regardless of the working directory.
 
 ## Gotchas
 
+- The comlink binary is a bundled Node app with a **baked-in V8 heap cap**;
+  `NODE_OPTIONS`/`mem_limit` can't raise it, which is why game data comes from
+  the static repo instead of comlink's `/data`. Keep comlink to `/player` and
+  `/guild` calls only.
+- The static unit catalog (`units.json.br`) is the canonical roster set (410
+  baseIds); comlink's `/data` also returned ~111 event/raid/journey variants
+  (e.g. `THEMANDALORIANBESKARARMOR_JOURNEY_EVENT`, `..._SPEEDERBIKERAID`).
+  Those never appear in player rosters, so faction matching is unaffected.
 - Unit matching is by display name (unique per unit in practice); `baseId` is
   recorded in outputs for precision. Some units share a display name across
   baseIds (e.g. "The Mandalorian (Beskar Armor)" has journey-event variants) —

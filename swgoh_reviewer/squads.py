@@ -81,14 +81,20 @@ def load_known(data_dir):
             name_map[name.strip().lower()] = base_id
 
     tags = set()
-    cat_path = data_dir / "game" / "categories.json"
-    loc_path = data_dir / "game" / "localization.json"
-    if cat_path.exists() and loc_path.exists():
-        cats = json.loads(cat_path.read_text())
-        loc = json.loads(loc_path.read_text())
-        for cdef in cats.values():
-            if cdef.get("visible") and cdef.get("descKey") and cdef["descKey"] in loc:
-                tags.add(loc[cdef["descKey"]].strip().lower())
+    factions_path = data_dir / "game" / "factions.json"
+    if factions_path.exists():
+        for name in json.loads(factions_path.read_text()):
+            tags.add(name.strip().lower())
+    else:
+        # fall back to the older cache layout (categories + full localization)
+        cat_path = data_dir / "game" / "categories.json"
+        loc_path = data_dir / "game" / "localization.json"
+        if cat_path.exists() and loc_path.exists():
+            cats = json.loads(cat_path.read_text())
+            loc = json.loads(loc_path.read_text())
+            for cdef in cats.values():
+                if cdef.get("visible") and cdef.get("descKey") and cdef["descKey"] in loc:
+                    tags.add(loc[cdef["descKey"]].strip().lower())
     return name_map, tags
 
 
