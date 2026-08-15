@@ -1,0 +1,12 @@
+{
+  "name": "swgoh-reviewer-js",
+  "private": true,
+  "description": "Dev-time jsdom verification for the generated pages (the app itself is the Python/uv side).",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

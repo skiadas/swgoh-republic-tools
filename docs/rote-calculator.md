@@ -114,5 +114,6 @@ returns best-effort. Carry/bank identical to `compute()`.
 planet name — returns `{stars, cs, days, unmet}`. `estOf()` resolves each
 planet's estimate: `0` is honored as-is, only a missing key falls back to 100.
 The popup's per-day plan lines list planets in the main view's
-dark/neutral/light/specials order. Sanity reference (jsdom-verified): 100% CM
-→ 47 stars no unlocks / 54 both specials; 50% → 43; 30% → 41.
+dark/neutral/light/specials order. Sanity reference (jsdom-verified via
+`npm test`): 100% CM → 47 stars no unlocks / 52 both specials; 50% → 43;
+30% → 41. These are data-dependent — re-derive them on game updates.

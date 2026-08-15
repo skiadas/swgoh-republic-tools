@@ -71,7 +71,7 @@ caches), `squad_report.py` (squad report), `render_report.py` (HTML dashboard),
   setup and diagnostics.
 - **Verify a change:** the compile/test checks above; report sanity via
   `uv run python squad_report.py <guild_id> --player <allycode>`; page JS via
-  `node --check` on the second `<script>` block.
+  `node --check` on the second `<script>` block plus `npm test` (jsdom).
 
 ## How the pipeline is structured
 
@@ -129,9 +129,10 @@ rewards, CM max from each mission's `pointsPerWave` × `CM_MULTIPLIER`) plus
 `localStorage` keys (no server storage yet); a "Share" button copies a URL with
 the plan payload embedded (`?plan=<base64url>`), and opening such a URL loads it
 as an editable "Shared" plan. Verify the JS with `node --check` on the second
-`<script>` block; jsdom sanity: 100% CM → 47 stars no unlocks / 54 both
-specials; 50% → 43; 30% → 41. Full model (per-day aggregate `compute()`,
-UI/state, optimizer): `docs/rote-calculator.md`.
+`<script>` block and `npm test` (jsdom: calculator optimizer sanity 47/52/43/41,
+share round-trip, dashboard matrix — data-dependent, re-derive on game updates).
+Full model (per-day aggregate `compute()`, UI/state, optimizer):
+`docs/rote-calculator.md`.
 
 ### Op-fill planning (`rote_ops.py`)
 
@@ -220,7 +221,22 @@ Tests: `tests/test_server.py` (TestClient, no comlink).
   sanity-check against the calibration anchor: player `679577173`'s `GLLEIA`
   has raw `relic.currentTier` 11 == R9.
 - **Touch the job runner:** keep the lock reentrant (`threading.RLock`).
-- **Edit `calc.py` JS:** `node --check` the second `<script>` block; jsdom
-  sanity 47★/54/43/41.
+- **Edit `calc.py` JS:** `node --check` the second `<script>` block; run
+  `npm test` (jsdom: optimizer sanity 47/52/43/41, share round-trip).
 - **Change the ops/TB merge:** ops attach by `linkedConflictId`; platoons are
   numbered by position in `swgoh_rote_operations.json`, not by their id suffix.
+
+## Decisions & deferred work
+
+- Guilds are always-on: every registered guild is public and refreshed nightly
+  (no enabled toggle). Removing a guild (admin → Remove guild, confirmed)
+  deletes its DB row + `data/guilds/<id>.*` files.
+- Internal ids are never surfaced to users — e.g. the ROTE campaign id `t05D`
+  is a code constant only (no UI shows it).
+- Calculator plans are browser-local (per-guild `localStorage`) and shared as a
+  URL-encoded `?plan=` payload — no server storage yet. Deferred until a
+  "signed-in" concept exists: DB-backed plans (a `guild_plans` table; users
+  edit only their own plans and can clone the guild plan; officers set one plan
+  as the guild's current plan, shown to everyone; share by id or payload).
+- Page-JS verification runs via `npm install && npm test` (jsdom, dev-only; not
+  in the Docker CI). Fixtures are generated from the local `data/` at test time.
