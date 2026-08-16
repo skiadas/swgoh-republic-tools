@@ -12,7 +12,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from swgoh_reviewer import calc, dashboard, pipeline, platoons, squads, tb
+from swgoh_reviewer import assignments, calc, dashboard, pipeline, platoons, squads, tb
 from swgoh_reviewer.config import data_root
 from swgoh_reviewer.io import atomic_write_text
 
@@ -103,6 +103,10 @@ class JobRunner:
                     # summary; it is non-fatal (the refresh still succeeds).
                     if platoons.main([guild_id, "--outdir", str(self.outdir)]) not in (0, None):
                         print("[regen] platoon planner failed; skipped", flush=True)
+                    # The assignments-by-member roster is read-only and light;
+                    # non-fatal like the planner.
+                    if assignments.main([guild_id, "--outdir", str(self.outdir)]) not in (0, None):
+                        print("[regen] assignments page failed; skipped", flush=True)
                 else:
                     print("[regen] ROTE calculator skipped (TB doc unavailable)", flush=True)
                 self.db.log_job(guild_id, "regen", "ok", started_at=start)

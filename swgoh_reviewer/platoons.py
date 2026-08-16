@@ -84,11 +84,16 @@ def load_gl_units(outdir):
     return out
 
 
-def build_data(outdir, guild_id, tb_id=TB_ID):
+def build_data(outdir, guild_id, tb_id=TB_ID, light=False):
+    """Planet/roster data for the planner pages.
+
+    `light=True` drops what the read-only views don't need (per-member unit
+    maps, slot combat type / GL tags), keeping the payload small.
+    """
     rote = json.loads((outdir / "rote" / f"{tb_id}.json").read_text())
     summary = json.loads((outdir / "guilds" / f"{guild_id}.summary.json").read_text())
-    unit_combat = load_combat_types(outdir)
-    gl_units = load_gl_units(outdir)
+    unit_combat = load_combat_types(outdir) if not light else {}
+    gl_units = load_gl_units(outdir) if not light else set()
 
     planets = []
     for ph in rote.get("phases", []):
@@ -98,8 +103,11 @@ def build_data(outdir, guild_id, tb_id=TB_ID):
             for pl in op.get("platoons") or []:
                 slots = []
                 for u in pl.get("units") or []:
-                    ct = unit_combat.get(u["baseId"])
-                    slots.append({"b": u["baseId"], "n": u["name"], "c": 2 if ct == 2 else 1, "gl": 1 if u["baseId"] in gl_units else 0})
+                    if light:
+                        slots.append({"b": u["baseId"], "n": u["name"]})
+                    else:
+                        ct = unit_combat.get(u["baseId"])
+                        slots.append({"b": u["baseId"], "n": u["name"], "c": 2 if ct == 2 else 1, "gl": 1 if u["baseId"] in gl_units else 0})
                 platoons.append({"idx": pl.get("platoon", len(platoons) + 1), "slots": slots})
             planets.append(
                 {
@@ -114,21 +122,25 @@ def build_data(outdir, guild_id, tb_id=TB_ID):
                 }
             )
 
-    # Ship-ness of any slot not in the unit catalog falls back to the guild
-    # roster (summary units carry combatType).
-    ship_units = set()
-    for m in summary.get("members", []):
-        for u in m.get("units") or []:
-            if u.get("combatType") == "ship":
-                ship_units.add(u["baseId"])
-    for planet in planets:
-        for pl in planet["platoons"]:
-            for s in pl["slots"]:
-                if s["c"] == 1 and s["b"] in ship_units:
-                    s["c"] = 2
+    if not light:
+        # Ship-ness of any slot not in the unit catalog falls back to the guild
+        # roster (summary units carry combatType).
+        ship_units = set()
+        for m in summary.get("members", []):
+            for u in m.get("units") or []:
+                if u.get("combatType") == "ship":
+                    ship_units.add(u["baseId"])
+        for planet in planets:
+            for pl in planet["platoons"]:
+                for s in pl["slots"]:
+                    if s["c"] == 1 and s["b"] in ship_units:
+                        s["c"] = 2
 
     members = []
     for m in summary.get("members", []):
+        if light:
+            members.append({"ac": m.get("allyCode"), "name": m.get("name")})
+            continue
         units = {}
         for u in m.get("units") or []:
             units[u["baseId"]] = [
@@ -227,6 +239,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <button onclick="clearAll()" title="Clear all platoon assignments">Clear all</button>
     <input type="file" id="import-file" accept="application/json,.json" style="display:none" onchange="importPlanFile(this)">
     &nbsp;<a href="./calc" style="color:#9db3e0">open calculator</a>
+    &nbsp;<a href="./assignments" style="color:#9db3e0">by member</a>
     &nbsp;day <b id="day-note">1</b>
   </div>
 </header>

@@ -38,7 +38,8 @@ the `swgoh-utils/gamedata` repo. No swgoh.gg scraping. Everything runs with
 `guild_summary.py` (offline summary rebuild), `build_caches.py` (rebuild game
 caches), `squad_report.py` (squad report), `render_report.py` (HTML dashboard),
 `rote.py` (TB doc), `rote_ops.py` (op fills), `rote_calc.py` (calculator page),
-`rote_platoons.py` (platoon planner page), `start_comlink.sh` (comlink in Docker).
+`rote_platoons.py` (platoon planner page), `rote_assignments.py` (assignments
+by member), `start_comlink.sh` (comlink in Docker).
 
 - **Run / test / compile:**
   ```bash
@@ -60,7 +61,8 @@ caches), `squad_report.py` (squad report), `render_report.py` (HTML dashboard),
 - **Regenerate pages from caches:** `squad_report.py <guild_id>` →
   `data/guilds/<id>.squads.json`; `render_report.py <guild_id>` →
   `.squads.html`; `rote_calc.py <guild_id>` → `.calculator.html`;
-  `rote_platoons.py <guild_id>` → `.platoons.html`. The server
+  `rote_platoons.py <guild_id>` → `.platoons.html`;
+  `rote_assignments.py <guild_id>` → `.assignments.html`. The server
   admin's "Regenerate pages" runs all of them.
 - **Rebuild a summary offline:** `guild_summary.py <guild_id>` from
   `data/<allyCode>.json` raw rosters + caches (dev tool).
@@ -119,6 +121,9 @@ Roster matching notes:
   (`rote_calc.py`). Full model: `docs/rote-calculator.md`.
 - `data/guilds/<guildId>.platoons.html` — day-by-day platoon assignment
   planner (`rote_platoons.py`); see "Platoon planner" below.
+- `data/guilds/<guildId>.assignments.html` — read-only per-member assignment
+  roster (`rote_assignments.py`); a light sibling of the planner
+  (`build_data(light=True)` drops unit maps / slot c/gl).
 
 ## Tools & conventions
 
@@ -193,6 +198,18 @@ generation modes + GL open-slot + genPick).
 `server/jobs.py:regen`
 builds it non-fatally next to the calculator.
 
+### Assignments by member (`rote_assignments.py`)
+
+Read-only roster at `/g/<id>/assignments` listing every member's platoon
+assignments across all days, from the same plan `fills` (same localStorage
+keys). Summary table: member, total fills, per-day counts; each row expands
+to the detail (`Day · Planet · Platoon N · unit`), flagging per-(member,
+planet, day) groups over the 10-cap, and has a `copy` button that puts a
+Markdown version of that member's assignments on the clipboard. Uses
+`build_data(light=True)` (no unit maps / slot combat/GL) so the page is ~10×
+smaller than the planner; search filter + expand/collapse all. Wired into
+`server/jobs.py:regen` non-fatally.
+
 ### Territory Battle docs (`rote.py`)
 
 - Built entirely from the cached static gamedata (no comlink, no swgoh.gg):
@@ -245,8 +262,9 @@ the reentrant lock; admin-triggered jobs are **enqueued** and run on a
 background worker so requests return immediately with a 303, status visible in
 `job_log`), `server/auth.py` (Discord OAuth + signed cookies + roster-derived
 roles), `server/app.py` (routes). Read access is open at
-`/g/<id>/{report,calc,platoons}`; `/g/<id>/squads` needs an officer/leader
-role (or admin); `/admin*` needs the signed 24h admin cookie (token entered at
+`/g/<id>/{report,calc,platoons,assignments}`; `/g/<id>/squads` needs an
+officer/leader role (or admin); `/admin*` needs the signed 24h admin cookie
+(token entered at
 `/admin/login`, never a URL). Every registered guild is public and refreshed
 nightly; removing a guild (admin → Remove guild, confirmed) deletes its DB row
 and `data/guilds/<id>.*` files. Discord links (`discord_id → allycode`) are made
