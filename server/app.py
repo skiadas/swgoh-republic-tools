@@ -252,8 +252,10 @@ def create_app(outdir=None, db_path=None, comlink=None):
         links = ""
         report = outdir / "guilds" / f"{guild_id}.squads.html"
         calc_file = outdir / "guilds" / f"{guild_id}.calculator.html"
+        platoons_file = outdir / "guilds" / f"{guild_id}.platoons.html"
         links += f"<a href='/g/{guild_id}/report'>squad report</a>" if report.is_file() else "squad report (pending)"
         links += f"<a href='/g/{guild_id}/calc'>ROTE calculator</a>" if calc_file.is_file() else "ROTE calculator (pending)"
+        links += f"<a href='/g/{guild_id}/platoons'>platoon planner</a>" if platoons_file.is_file() else "platoon planner (pending)"
         body = f'<div class="card"><b>{_esc(guild_display(g))}</b> · last refresh {_esc((g["last_refresh"] or "—")[:19])}</div>'
         job = db.latest_job(guild_id)
         if job:
@@ -312,6 +314,11 @@ def create_app(outdir=None, db_path=None, comlink=None):
     def guild_calc(guild_id: str):
         require_guild(guild_id)
         return FileResponse(safe_guild_file(outdir, guild_id, "calculator.html"))
+
+    @app.get("/g/{guild_id}/platoons")
+    def guild_platoons(guild_id: str):
+        require_guild(guild_id)
+        return FileResponse(safe_guild_file(outdir, guild_id, "platoons.html"))
 
     # ---------------- admin ----------------
 
@@ -401,8 +408,10 @@ def create_app(outdir=None, db_path=None, comlink=None):
         g = require_guild(guild_id)
         report = outdir / "guilds" / f"{guild_id}.squads.html"
         calc_file = outdir / "guilds" / f"{guild_id}.calculator.html"
+        platoons_file = outdir / "guilds" / f"{guild_id}.platoons.html"
         links = f"<a href='/g/{guild_id}/report'>report</a>" if report.is_file() else "report (pending)"
         links += f" <a href='/g/{guild_id}/calc'>calc</a>" if calc_file.is_file() else " calc (pending)"
+        links += f" <a href='/g/{guild_id}/platoons'>platoons</a>" if platoons_file.is_file() else " platoons (pending)"
         job = db.latest_job(guild_id)
         jobline = ""
         if job:

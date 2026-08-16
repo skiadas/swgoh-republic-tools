@@ -33,6 +33,7 @@ def make_data(tmp_path):
     )
     g.joinpath("G1.squads.html").write_text("<html>report</html>")
     g.joinpath("G1.calculator.html").write_text("<html>calc</html>")
+    g.joinpath("G1.platoons.html").write_text("<html>platoons</html>")
     return tmp_path
 
 
@@ -70,6 +71,8 @@ def test_guild_pages_serve(tmp_path):
     assert client.get("/g/G1").status_code == 200
     assert client.get("/g/G1/report").status_code == 200
     assert client.get("/g/G1/calc").status_code == 200
+    assert client.get("/g/G1/platoons").status_code == 200
+    assert "platoon planner" in client.get("/g/G1").text
 
 
 def test_unknown_guild_404(tmp_path):
@@ -256,7 +259,7 @@ def test_refresh_guild_does_not_deadlock_on_regen(tmp_path, monkeypatch):
     """refresh_guild calls regen while holding the lock; the lock must be reentrant."""
     import threading
 
-    from swgoh_reviewer import calc, dashboard, pipeline, squads
+    from swgoh_reviewer import calc, dashboard, pipeline, platoons, squads
     from server.db import DB as Database
     from server.jobs import JobRunner
 
@@ -272,6 +275,7 @@ def test_refresh_guild_does_not_deadlock_on_regen(tmp_path, monkeypatch):
     monkeypatch.setattr(squads, "main", lambda *a, **k: 0)
     monkeypatch.setattr(dashboard, "main", lambda *a, **k: 0)
     monkeypatch.setattr(calc, "main", lambda *a, **k: 0)
+    monkeypatch.setattr(platoons, "main", lambda *a, **k: 0)
     (tmp_path / "rote").mkdir(parents=True)
     (tmp_path / "rote" / "t05D.json").write_text("{}")
 

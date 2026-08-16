@@ -195,6 +195,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     plan <select id="plan-select" onchange="selectPlan()"></select>
     <button onclick="openNewPlan()">New Plan</button>
     <button id="share-btn" onclick="sharePlan()" title="Copy a link that opens this plan">Share</button>
+    <button onclick="openPlanner()" title="Plan which member fills each platoon slot, day by day">Open planner</button>
     <button onclick="openOpt()">Optimize</button>
     &nbsp;&nbsp; total stars: <b id="total-stars">0</b>
     <label style="float:right" title="Show scores as e.g. 1.2B / 234.3M; tooltips keep exact values">
@@ -311,10 +312,18 @@ const DATA = {{ data_json }};
   function persist() {
     try {
       const plans = loadPlans();
-      plans[planName()] = { deployPct: state.deployPct, unlockZeffo: state.unlockZeffo, unlockMandalore: state.unlockMandalore, days: state.days };
+      const prev = plans[planName()] || {};
+      plans[planName()] = Object.assign({}, prev, {
+        deployPct: state.deployPct, unlockZeffo: state.unlockZeffo,
+        unlockMandalore: state.unlockMandalore, days: state.days,
+      });
       localStorage.setItem(LS_KEY, JSON.stringify(plans));
     } catch (e) { /* storage unavailable */ }
   }
+  window.openPlanner = function () {
+    persist();
+    location.href = "/g/" + guildId + "/platoons";
+  };
   function loadPlan(name) {
     const saved = loadPlans()[name] || {};
     state.deployPct = saved.deployPct !== undefined ? saved.deployPct : 100;
@@ -701,12 +710,14 @@ const DATA = {{ data_json }};
     const name = document.getElementById("np-name").value.trim();
     if (!name) { document.getElementById("np-name").focus(); return; }
     const dup = document.querySelector('input[name="np-type"]:checked').value === "dup";
+    const prevPlan = dup ? (loadPlans()[planName()] || {}) : {};
     const plan = dup
       ? {
           deployPct: state.deployPct,
           unlockZeffo: state.unlockZeffo,
           unlockMandalore: state.unlockMandalore,
           days: JSON.parse(JSON.stringify(state.days)),
+          ...(prevPlan.fills ? { fills: JSON.parse(JSON.stringify(prevPlan.fills)) } : {}),
         }
       : { deployPct: 100, unlockZeffo: false, unlockMandalore: false, days: {} };
     const plans = loadPlans();

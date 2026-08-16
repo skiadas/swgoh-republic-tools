@@ -12,7 +12,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from swgoh_reviewer import calc, dashboard, pipeline, squads, tb
+from swgoh_reviewer import calc, dashboard, pipeline, platoons, squads, tb
 from swgoh_reviewer.config import data_root
 from swgoh_reviewer.io import atomic_write_text
 
@@ -74,7 +74,7 @@ class JobRunner:
 
     # ---- jobs ----
     def regen(self, guild_id, squads_json=None):
-        """Regenerate squad report + dashboard + calculator from existing caches (no EA calls)."""
+        """Regenerate squad report + dashboard + calculator + planner from existing caches (no EA calls)."""
         tb_id = TB_ID
         with self._lock:
             start = datetime.now(timezone.utc).isoformat()
@@ -99,6 +99,10 @@ class JobRunner:
                 if rote_path.exists():
                     if calc.main([guild_id, "--outdir", str(self.outdir), "--tb", tb_id]) not in (0, None):
                         raise JobError("rote_calc failed")
+                    # The platoon planner is built from the same TB doc + guild
+                    # summary; it is non-fatal (the refresh still succeeds).
+                    if platoons.main([guild_id, "--outdir", str(self.outdir)]) not in (0, None):
+                        print("[regen] platoon planner failed; skipped", flush=True)
                 else:
                     print("[regen] ROTE calculator skipped (TB doc unavailable)", flush=True)
                 self.db.log_job(guild_id, "regen", "ok", started_at=start)

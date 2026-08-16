@@ -38,7 +38,7 @@ the `swgoh-utils/gamedata` repo. No swgoh.gg scraping. Everything runs with
 `guild_summary.py` (offline summary rebuild), `build_caches.py` (rebuild game
 caches), `squad_report.py` (squad report), `render_report.py` (HTML dashboard),
 `rote.py` (TB doc), `rote_ops.py` (op fills), `rote_calc.py` (calculator page),
-`start_comlink.sh` (comlink in Docker).
+`rote_platoons.py` (platoon planner page), `start_comlink.sh` (comlink in Docker).
 
 - **Run / test / compile:**
   ```bash
@@ -59,8 +59,9 @@ caches), `squad_report.py` (squad report), `render_report.py` (HTML dashboard),
   stamp and re-downloads only when the game changed. None need comlink.
 - **Regenerate pages from caches:** `squad_report.py <guild_id>` →
   `data/guilds/<id>.squads.json`; `render_report.py <guild_id>` →
-  `.squads.html`; `rote_calc.py <guild_id>` → `.calculator.html`. The server
-  admin's "Regenerate pages" runs all three.
+  `.squads.html`; `rote_calc.py <guild_id>` → `.calculator.html`;
+  `rote_platoons.py <guild_id>` → `.platoons.html`. The server
+  admin's "Regenerate pages" runs all of them.
 - **Rebuild a summary offline:** `guild_summary.py <guild_id>` from
   `data/<allyCode>.json` raw rosters + caches (dev tool).
 - **Run the web app locally:** `uv run python server/app.py` (reads `SWGOH_PORT`,
@@ -116,6 +117,8 @@ Roster matching notes:
   (`rote_ops.py`).
 - `data/guilds/<guildId>.calculator.html` — ROTE calculator page
   (`rote_calc.py`). Full model: `docs/rote-calculator.md`.
+- `data/guilds/<guildId>.platoons.html` — day-by-day platoon assignment
+  planner (`rote_platoons.py`); see "Platoon planner" below.
 
 ## Tools & conventions
 
@@ -144,6 +147,51 @@ Full model (per-day aggregate `compute()`, UI/state, optimizer):
   below the requirement (top 5).
 - Requires `rarity` in the guild summary (ships), so re-run `guild_summary.py`
   after a roster refresh.
+
+### Platoon planner (`rote_platoons.py`)
+
+Self-contained Jinja2 page (same shape as the calculator: `const DATA` +
+second `<script>` IIFE) served at `/g/<id>/platoons`. Day tabs 1–6; the planets
+shown on a day come straight from the star plan (`state.days[d]`, plus any
+planet with fills that day) — the calculator decides accessibility, the
+planner does no phase math. Planets are listed in the calculator's
+dark → neutral → light → specials order (`build_data` tags each planet with an
+`order` from its `conflict<N>`/`_bonus` id). Each planet is a row of 6 platoon columns × 15
+slot cells, collapsible per planet. Assignments are manual per (planet, day,
+slot): each cell has an eligible-count badge and a chip (right-aligned) that
+opens a popover listing only members who qualify (relic ≥ req, ships 7★),
+sorted by relic, with a "Clear today's fill" row; options already conflicted
+that day are dimmed with a tooltip. A slot's latest assignment on or before
+the viewed day covers it (chip shows the member), and a covered slot can still
+be reassigned on later days without removing the earlier fill. Conflicts
+surface as warnings: >10 fills per member per planet per day, a unit placed
+twice by one member in a day (across all planets), and completing a platoon
+before the planet's planned star day.
+
+Auto-generation (`generateAssignments(scope, strategy, policy)`) is triggered
+from contextual `auto` buttons (header "Generate all", each day line, each
+planet header) that open one popup with two choices: **platoon filling**
+("fill according to plan" — complete the plan's `platoons` count, preload the
+rest to 14/15, leaving a Galactic Legend / least-constrained unit unassigned
+per platoon; or "fill fully" — complete everything) and **member selection**
+(strongest / weakest / minimize assignments per day). Fills only uncovered
+slots, seeded from existing fills; a header "Clear all" wipes fills but keeps
+the star plan. `setFill` is the shared mutation helper; `genPick` is the pure
+strategy picker.
+
+The planner shares the calculator's per-guild plan objects
+(`roteCalcPlans:<guildId>` / `roteCalcCurrent:<guildId>`) and adds a `fills`
+field keyed `planet → day → slotIdx → allyCode` (slotIdx = platoon*15+pos).
+Plans are shared between browsers by **Export/Import JSON** — the file carries
+the star plan (`days`) plus the fills, with slots as `"platoon:pos"` and
+members as allyCodes; the calculator's `?plan=` URL stays star-plan-only.
+`calc.py`'s `persist`/new-plan must merge (preserve `fills`), and `platoons.py`
+must never drop `days`. Verify: `node --check` the second `<script>` block and
+`npm test` (jsdom: day tabs, coverage + reassign, the three conflicts,
+eligible-only picker, export→import round-trip, unknown-member import,
+generation modes + GL open-slot + genPick).
+`server/jobs.py:regen`
+builds it non-fatally next to the calculator.
 
 ### Territory Battle docs (`rote.py`)
 
@@ -197,7 +245,7 @@ the reentrant lock; admin-triggered jobs are **enqueued** and run on a
 background worker so requests return immediately with a 303, status visible in
 `job_log`), `server/auth.py` (Discord OAuth + signed cookies + roster-derived
 roles), `server/app.py` (routes). Read access is open at
-`/g/<id>/{report,calc}`; `/g/<id>/squads` needs an officer/leader
+`/g/<id>/{report,calc,platoons}`; `/g/<id>/squads` needs an officer/leader
 role (or admin); `/admin*` needs the signed 24h admin cookie (token entered at
 `/admin/login`, never a URL). Every registered guild is public and refreshed
 nightly; removing a guild (admin → Remove guild, confirmed) deletes its DB row

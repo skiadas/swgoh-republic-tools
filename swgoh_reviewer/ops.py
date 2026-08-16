@@ -402,6 +402,7 @@ def main(argv=None):
     outdir.mkdir(parents=True, exist_ok=True)
     json_path = outdir / f"{slug}.ops.json"
     atomic_write_text(json_path, json.dumps({"planet": planet["name"], "phase": phase_num, "report": report}, indent=2, ensure_ascii=False))
+    html_path = outdir / f"{slug}.ops.html"
     atomic_write_text(html_path, render_html(planet, report, summary.get("guildName", args.guild_id), phase_num))
 
     print(console_report(planet, report, phase_num))
