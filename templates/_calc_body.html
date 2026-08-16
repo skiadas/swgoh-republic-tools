@@ -37,7 +37,7 @@
       <b>{{ deploy }}%</b></label>
     <label title="Show scores as e.g. 1.2B / 234.3M"><input type="checkbox" name="compact" value="1"
       {% if compact %}checked{% endif %} {% if not can_edit %} disabled{% endif %}> compact numbers</label>
-    <span class="muted">Guild GP <b>{{ guild_gp|fmt }}</b> · total stars <b>{{ total_stars }}</b></span>
+    <span class="muted">Guild GP <b>{{ guild_gp|fmt(compact) }}</b> · total stars <b>{{ total_stars }}</b></span>
   </div>
   <div class="hint">Per day you pick each accessible planet's action. The page reports the min % of that day's combat-mission
     points needed to hit your star goals, the max % you can earn without accidentally starring a preloaded planet, and how many
@@ -47,9 +47,9 @@
   <section class="day {{ 'bad' if not r.feasible else ('low' if r.shortEst else '') }}">
     <h3>Day {{ r.day }}</h3>
     {% if not r.feasible %}
-    <div class="day-banner bad">⚠ <b>Cannot reach these goals.</b> Even 100% CM is not enough — still short by {{ (r.cmMinPts - r.totalCM)|round|fmt }} points.</div>
+    <div class="day-banner bad">⚠ <b>Cannot reach these goals.</b> Even 100% CM is not enough — still short by {{ (r.cmMinPts - r.totalCM)|round|fmt(compact) }} points.</div>
     {% elif r.shortEst %}
-    <div class="day-banner low">⚠ <b>Estimated CM falls short.</b> Your sliders give ~{{ r.estPct|round(0) }}% of the day CM, but these goals need {{ r.minPct|round(1) }}% — short by {{ r.shortPts|round|fmt }} points.</div>
+    <div class="day-banner low">⚠ <b>Estimated CM falls short.</b> Your sliders give ~{{ r.estPct|round(0) }}% of the day CM, but these goals need {{ r.minPct|round(1) }}% — short by {{ r.shortPts|round|fmt(compact) }} points.</div>
     {% endif %}
     <div class="daygrid">
       <div class="labels-col"><div class="lab-spacer"></div><div class="lab">Star goal</div><div class="lab">Platoons</div><div class="lab">CM%</div></div>
@@ -63,9 +63,9 @@
         {% set minp = r.minPct if r.feasible else (r.cmMinPts / r.totalCM * 100 if r.totalCM else 0) %}
         <div class="metric {{ 'bad' if not r.feasible }}"><span>min CM</span><b>{{ minp|round(1) }}%</b></div>
         <div class="metric"><span>max CM</span><b>{{ r.maxPct|round(1) }}%</b></div>
-        <div class="metric"><span>bank in</span><b>{{ r.bankIn|fmt }}</b></div>
-        <div class="metric"><span>carry out</span><b>{{ r.carry|fmt }}</b></div>
-        <div class="metric"><span>wasted deploy</span><b>{{ r.wastedGp|fmt }}</b></div>
+        <div class="metric"><span>bank in</span><b>{{ r.bankIn|fmt(compact) }}</b></div>
+        <div class="metric"><span>carry out</span><b>{{ r.carry|fmt(compact) }}</b></div>
+        <div class="metric"><span>wasted deploy</span><b>{{ r.wastedGp|fmt(compact) }}</b></div>
       </div>
     </div>
     {% for t in r.unlockToggles %}
@@ -73,8 +73,8 @@
       {% if (unlock_zeffo if t.id == 'zeffo' else unlock_mandalore) %}checked{% endif %}
       {% if not can_edit %} disabled{% endif %}> Unlock {{ t.name }} (after {{ t.trigger }})</label></div>
     {% endfor %}
-    <div class="overall-bottom"><span class="detail">minTP {{ r.minTP|fmt }} · maxTP {{ r.maxTP|fmt }} · platoons {{ r.platoon|fmt }} ·
-      deploy {{ r.gp|fmt }} · CM avail {{ r.totalCM|fmt }}</span>
+    <div class="overall-bottom"><span class="detail">minTP {{ r.minTP|fmt(compact) }} · maxTP {{ r.maxTP|fmt(compact) }} · platoons {{ r.platoon|fmt(compact) }} ·
+      deploy {{ r.gp|fmt(compact) }} · CM avail {{ r.totalCM|fmt(compact) }}</span>
       {% if not r.feasible %}<span class="warn">⚠ goals exceed deploy + platoons + 100% CM</span>{% endif %}
     </div>
   </section>

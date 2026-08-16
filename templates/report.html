@@ -59,3 +59,14 @@
 </div>
 {% endif %}
 {% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll(".vtabs button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".vtabs button").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+    });
+  });
+</script>
+{% endblock %}

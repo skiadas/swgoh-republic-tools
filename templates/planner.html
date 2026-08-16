@@ -71,6 +71,12 @@
 
 {% block scripts %}
 <script>
+  document.querySelectorAll(".tabs .tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".tabs .tab").forEach(function (b) { b.classList.remove("on"); });
+      btn.classList.add("on");
+    });
+  });
   function showPicker() { document.getElementById('picker').style.display = 'flex'; }
   function hidePicker() { document.getElementById('picker').style.display = 'none'; }
   function showGen() { document.getElementById('gen').style.display = 'flex'; }

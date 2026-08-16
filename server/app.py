@@ -46,12 +46,14 @@ TEMPLATES_DIR = REPO_ROOT / "templates"
 STATIC_DIR = SERVER_DIR / "static"
 
 
-def _fmt(n):
+def _fmt(n, compact=False):
     v = float(n or 0)
     a = abs(v)
     for mul, suf in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
         if a >= mul:
             x = v / mul
+            if compact:
+                return f"{int(x)}{suf}"
             return (f"{x:.1f}".rstrip("0").rstrip(".") if x != int(x) else str(int(x))) + suf
     return str(int(v))
 
@@ -264,10 +266,12 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return RedirectResponse(f"/g/{guild_id}", status_code=303)
 
     # ---- squad report (htmx views) ----
-    def report_view_ctx(guild_id, search="", squad=0, player="", sort="name", hide=False):
+    def report_view_ctx(guild_id, search="", squad=0, player="", sort="name", hide=False, view=""):
         report, members = report_logic.load_report(outdir, guild_id)
         players, categories = report_logic.prepare(report, members)
         all_squads = report.get("bySquad", [])
+        if view == "players" and not player and players:
+            player = str(players[0]["allyCode"])
         return {
             "guild_id": guild_id,
             "report": report,
@@ -285,10 +289,11 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}/report", response_class=HTMLResponse)
     def guild_report(guild_id: str, request: Request, view: str = "matrix"):
         require_guild(guild_id)
-        ctx = report_view_ctx(guild_id)
+        view = view if view in ("matrix", "squads", "players", "needs") else "matrix"
+        ctx = report_view_ctx(guild_id, view=view)
         ctx["guild_name"] = ctx["report"].get("guildName", guild_id)
         ctx["nav"] = guild_nav("Report", guild_id)
-        ctx["view"] = view if view in ("matrix", "squads", "players", "needs") else "matrix"
+        ctx["view"] = view
         return templates.TemplateResponse(request, "report.html", ctx)
 
     @app.get("/g/{guild_id}/report/view", response_class=HTMLResponse)
@@ -304,7 +309,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     ):
         require_guild(guild_id)
         view = view if view in ("matrix", "squads", "players", "needs") else "matrix"
-        ctx = report_view_ctx(guild_id, search=search, squad=squad, player=player, sort=sort, hide=hide)
+        ctx = report_view_ctx(guild_id, search=search, squad=squad, player=player, sort=sort, hide=hide, view=view)
         if view == "matrix":
             ctx["players"] = report_logic.filter_players(ctx["players"], ctx["all_squads"], search, hide, sort)
         return templates.TemplateResponse(request, f"_report_{view}.html", ctx)

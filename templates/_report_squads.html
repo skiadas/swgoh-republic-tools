@@ -1,3 +1,6 @@
+{% if not all_squads %}
+<div class="notice">No squad report yet — an officer needs to run the squad report (or regenerate pages).</div>
+{% else %}
 <div class="sq-select">
   <label>Squad:
     <select hx-get="/g/{{ guild_id }}/report/view?view=squads" hx-target="#view" hx-swap="innerHTML"
@@ -38,3 +41,4 @@
     </tbody>
   </table>
 </section>
+{% endif %}
