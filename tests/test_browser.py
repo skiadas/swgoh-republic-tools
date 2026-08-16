@@ -361,13 +361,47 @@ def test_planner_clear_all(admin_page, app_url, errors, accept_dialogs):
 
 
 @pytest.mark.browser
-def test_planner_generate_modal(admin_page, app_url, errors):
+def test_planner_generate_all(admin_page, app_url, errors):
     seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
     page = admin_page
     page.goto(f"{app_url}/g/{GUILD}/platoons")
     page.locator(".planet", has_text="Coruscant").wait_for()
-    page.click("button:has-text('Generate')")
-    page.locator("#gen .modal").wait_for()
+    page.click("button:has-text('Generate all')")
+    page.locator("#gen .modal", has_text="Scope: all days").wait_for(timeout=8000)
+    page.locator("#gen button", has_text="Generate").click()
+    page.locator("#gen .modal").wait_for(state="hidden", timeout=8000)
+    page.locator(".notice", has_text="Day 1:").wait_for(timeout=8000)
+    assert not errors, f"console errors: {errors}"
+
+
+@pytest.mark.browser
+def test_planner_generate_day(admin_page, app_url, errors):
+    seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}},
+                    "2": {"Bracca": {"goal": "1", "platoons": 6, "cmPct": 50}}})
+    page = admin_page
+    page.goto(f"{app_url}/g/{GUILD}/platoons")
+    page.locator(".planet", has_text="Coruscant").wait_for()
+    page.locator(".tabs .tab", has_text="Day 2").click()
+    page.locator(".planet", has_text="Bracca").wait_for(timeout=8000)
+    day_notice = page.locator(".notice", has_text="Day 2:").first
+    day_notice.locator(".gen-btn").click()
+    page.locator("#gen .modal", has_text="Scope: day 2").wait_for(timeout=8000)
+    page.locator("#gen button", has_text="Generate").click()
+    page.locator("#gen .modal").wait_for(state="hidden", timeout=8000)
+    page.locator(".notice", has_text="Day 2:").wait_for(timeout=8000)
+    assert not errors, f"console errors: {errors}"
+
+
+@pytest.mark.browser
+def test_planner_generate_planet(admin_page, app_url, errors):
+    seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}},
+                    "2": {"Bracca": {"goal": "1", "platoons": 6, "cmPct": 50}}})
+    page = admin_page
+    page.goto(f"{app_url}/g/{GUILD}/platoons")
+    page.locator(".planet", has_text="Coruscant").wait_for()
+    coruscant = page.locator(".planet", has_text="Coruscant").first
+    coruscant.locator("header.phead .gen-btn").click()
+    page.locator("#gen .modal", has_text="Scope: Coruscant · day 1").wait_for(timeout=8000)
     page.locator("#gen button", has_text="Generate").click()
     page.locator("#gen .modal").wait_for(state="hidden", timeout=8000)
     page.locator(".notice", has_text="Day 1:").wait_for(timeout=8000)

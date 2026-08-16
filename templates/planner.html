@@ -7,6 +7,7 @@
   .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
   .tab { padding: 6px 14px; border: 1px solid #c9d2e3; border-radius: 6px; background: #fff; cursor: pointer; font-weight: 700; font-size: 13px; }
   .tab.on { background: #1c2541; color: #fff; border-color: #1c2541; }
+  .gen-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; vertical-align: 1px; }
   .planet { background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 12px; }
   .phead { display: flex; gap: 10px; align-items: baseline; padding: 8px 14px; border-bottom: 1px solid #e5e7eb; }
   .pname { font-weight: 700; font-size: 14px; }
@@ -50,7 +51,7 @@
 {% block header_sub %}
   {% if plan_name %}plan <b>{{ plan_name }}</b>{% if is_draft %} <span class="muted">(draft)</span>{% endif %}{% endif %}
   {% if can_edit %}
-  <button onclick="showGen()" hx-get="/g/{{ guild_id }}/platoons/gen" hx-target="#gen" hx-swap="innerHTML" hx-on::after-request="showGen()">Generate</button>
+  <button onclick="showGen()" hx-get="/g/{{ guild_id }}/platoons/gen?scope=all" hx-target="#gen" hx-swap="innerHTML" hx-on::after-request="showGen()">Generate all</button>
   <button hx-post="/g/{{ guild_id }}/platoons/clear?d={{ day }}" hx-target="#day" hx-swap="innerHTML" hx-confirm="Clear all platoon assignments? The star plan is kept.">Clear all</button>
   <button hx-post="/g/{{ guild_id }}/platoons/publish?d={{ day }}" hx-target="#day" hx-swap="innerHTML" hx-confirm="Publish the current draft as the guild plan?">Publish to guild</button>
   {% endif %}

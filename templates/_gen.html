@@ -2,11 +2,9 @@
   <header class="mhead"><h2>Auto-generate assignments</h2><button onclick="hideGen()">&#215;</button></header>
   <div class="mbody">
     <input type="hidden" name="day" value="{{ day }}">
-    <div><b>Scope</b></div>
-    <div><label><input type="radio" name="gen-scope" value="all" checked> All days</label></div>
-    <div><label><input type="radio" name="gen-scope" value="day"> This day ({{ day }})</label></div>
-    <div><label><input type="radio" name="gen-scope" value="planet"> A planet
-      <select name="gen-planet">{% for p in planet_names %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></label></div>
+    <input type="hidden" name="gen-scope" value="{{ scope }}">
+    {% if scope == 'planet' %}<input type="hidden" name="gen-planet" value="{{ planet }}">{% endif %}
+    <div class="muted">Scope: {% if scope == 'all' %}all days{% elif scope == 'day' %}day {{ day }}{% else %}{{ planet }} · day {{ day }}{% endif %}</div>
     <div style="margin-top:8px"><b>Platoon filling</b></div>
     <div><label><input type="radio" name="gen-policy" value="plan" checked> Fill according to plan (complete the plan's platoon count, preload the rest to 14/15)</label></div>
     <div><label><input type="radio" name="gen-policy" value="full"> Fill platoons fully (complete everything)</label></div>

@@ -540,11 +540,23 @@ def create_app(outdir=None, db_path=None, comlink=None):
         )
 
     @app.get("/g/{guild_id}/platoons/gen", response_class=HTMLResponse)
-    def platoons_gen(guild_id: str, request: Request, d: int = 1):
+    def platoons_gen(guild_id: str, request: Request, d: int = 1, scope: str = "all", planet: str = ""):
         require_guild(guild_id)
         data, days_state, fills, _n, _d = planner_view(guild_id)
-        names = [p["name"] for p in planner.active_planets(days_state, fills, data["planets"], max(1, min(6, d)))]
-        return templates.TemplateResponse(request, "_gen.html", {"guild_id": guild_id, "day": d, "planet_names": names})
+        day = max(1, min(6, d))
+        if scope not in ("all", "day", "planet"):
+            scope = "all"
+        if scope == "planet":
+            active = {p["name"] for p in planner.active_planets(days_state, fills, data["planets"], day)}
+            if planet not in active:
+                scope = "day"
+        else:
+            planet = ""
+        return templates.TemplateResponse(
+            request,
+            "_gen.html",
+            {"guild_id": guild_id, "day": day, "scope": scope, "planet": planet},
+        )
 
     @app.post("/g/{guild_id}/platoons/assign", response_class=HTMLResponse)
     async def platoons_assign(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):

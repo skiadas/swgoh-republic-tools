@@ -1,6 +1,10 @@
 {% set ns = namespace(fills=0) %}
 {% for planet in planets %}{% set ns.fills = ns.fills + planet.platoons|sum(attribute='filled') %}{% endfor %}
-<div class="notice">Day {{ day }}: <b>{{ ns.fills }}</b> assignments.</div>
+<div class="notice">Day {{ day }}: <b>{{ ns.fills }}</b> assignments.
+  {% if can_edit and planets %}<button type="button" class="gen-btn" title="Auto-generate this day's assignments"
+    hx-get="/g/{{ guild_id }}/platoons/gen?scope=day&d={{ day }}" hx-target="#gen" hx-swap="innerHTML"
+    hx-on::after-request="showGen()">auto</button>{% endif %}
+</div>
 
 {% if not planets %}
 <div class="notice">No planets planned for day {{ day }} — set your star goals in the <a href="/g/{{ guild_id }}/calc">calculator</a> first.</div>
@@ -13,6 +17,9 @@
     <span class="meta">relic R{{ planet.relicReq }}
       {% if planet.starDay %}<b> · star day {{ planet.starDay }}</b>{% else %} · <span class="muted">not planned</span>{% endif %}
     </span>
+    {% if can_edit %}<button type="button" class="gen-btn" title="Auto-generate this planet's assignments"
+      hx-get="/g/{{ guild_id }}/platoons/gen?scope=planet&d={{ day }}&planet={{ planet.name|urlencode }}"
+      hx-target="#gen" hx-swap="innerHTML" hx-on::after-request="showGen()">auto</button>{% endif %}
   </header>
   <div class="planet-body">
     {% for platoon in planet.platoons %}
