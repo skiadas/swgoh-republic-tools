@@ -132,6 +132,32 @@ def test_guild_home_outlines_nav_all_guilds(tmp_path):
         assert label in home, f"nav missing {label}"
 
 
+def test_roster_stats_gls_come_from_faction_tag(tmp_path):
+    from swgoh_reviewer.roster_stats import guild_stats
+
+    g = tmp_path / "guilds"
+    g.mkdir(exist_ok=True)
+    g.joinpath("G2.summary.json").write_text(
+        json.dumps(
+            {
+                "members": [
+                    {
+                        "name": "A",
+                        "galacticPower": 5000000,
+                        "units": [
+                            {"baseId": "SUPREMELEADERKYLOREN", "name": "Supreme Leader Kylo Ren", "combatType": "character", "relicLevel": 9, "factions": ["First Order", "Galactic Legend", "Leader"]},
+                            {"baseId": "KYLORENUNMASKED", "name": "Kylo Ren (Unmasked)", "combatType": "character", "relicLevel": 9, "factions": ["First Order", "Leader", "Tank"]},
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    stats = guild_stats(tmp_path, "G2")
+    assert list(stats["gls"]) == ["Supreme Leader Kylo Ren"]
+    assert stats["gls"]["Supreme Leader Kylo Ren"] == 1
+
+
 def test_guild_pages_serve(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)

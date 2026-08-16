@@ -9,23 +9,7 @@ re-parse the summary.
 import functools
 import json
 
-# Curated list of Galactic Legend baseIds (verified against game data). Must
-# be updated as new GLs release (same caveat as the calculator optimizer's
-# fixed expectations). DARTHJARJAR (an April-Fool's unit) is deliberately
-# excluded.
-GL_BASE_IDS = {
-    "Rey": "GLREY",
-    "Kylo Ren (Unmasked)": "KYLORENUNMASKED",
-    "Supreme Leader Kylo Ren": "SUPREMELEADERKYLOREN",
-    "Sith Eternal Emperor": "SITHPALPATINE",
-    "Jedi Master Luke": "GRANDMASTERLUKE",
-    "Lord Vader": "LORDVADER",
-    "Jedi Master Kenobi": "JEDIMASTERKENOBI",
-    "Leia Organa": "GLLEIA",
-    "Ahsoka Tano": "GLAHSOKATANO",
-    "Bo-Katan (Mand'alor)": "MANDALORBOKATAN",
-    "Pirate King Hondo": "GLHONDO",
-}
+GL_FACTION = "Galactic Legend"
 
 
 def _ident(outdir, guild_id):
@@ -41,7 +25,8 @@ def _compute(identity):
 
     total_gp = char_gp = ship_gp = 0
     relics = {"total": 0, "r5plus": 0, "r9plus": 0}
-    gl_counts = {base_id: 0 for base_id in GL_BASE_IDS.values()}
+    gl_counts = {}
+    gl_names = {}
 
     for m in members:
         total_gp += m.get("galacticPower") or 0
@@ -55,16 +40,18 @@ def _compute(identity):
                 relics["r5plus"] += 1
             if rl >= 9:
                 relics["r9plus"] += 1
-            if u.get("combatType") != "ship":
+            if u.get("combatType") != "ship" and GL_FACTION in (u.get("factions") or []):
                 owned.add(u.get("baseId"))
-        for base_id in owned & gl_counts.keys():
-            gl_counts[base_id] += 1
+        for base_id in owned:
+            if base_id not in gl_names:
+                unit = next((x for x in m.get("units", []) if x.get("baseId") == base_id), {})
+                gl_names[base_id] = unit.get("name") or base_id
+            gl_counts[base_id] = gl_counts.get(base_id, 0) + 1
 
     count = len(members) or 1
     gls = {
-        name: gl_counts[base_id]
-        for name, base_id in sorted(GL_BASE_IDS.items(), key=lambda kv: -gl_counts[kv[1]])
-        if gl_counts[base_id]
+        gl_names[base_id]: gl_counts[base_id]
+        for base_id in sorted(gl_counts, key=lambda b: (gl_names[b].lower(), b))
     }
     return {
         "memberCount": len(members),
