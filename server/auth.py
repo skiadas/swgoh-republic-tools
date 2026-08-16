@@ -14,6 +14,7 @@ admin confirmation later.
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -97,9 +98,18 @@ def discord_authorize_url():
 
 def _post_form(url, fields):
     data = urllib.parse.urlencode(fields).encode()
-    req = urllib.request.Request(url, data=data, method="POST")
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read())
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": "swgoh-reviewer/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")[:300]
+        raise RuntimeError(f"Discord API {exc.code}: {body or exc.reason}") from exc
 
 
 def exchange_code(code, redirect_uri):
