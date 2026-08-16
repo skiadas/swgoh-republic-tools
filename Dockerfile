@@ -8,11 +8,13 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY swgoh_reviewer swgoh_reviewer
 COPY server server
 COPY templates templates
+COPY scripts scripts
 COPY squads.json squads.schema.json squads.md ./
 
-# Fetch the pinned htmx build into the served static dir.
-RUN mkdir -p server/static && \
-    curl -fsSL "https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" -o server/static/htmx.min.js
+# Fetch the pinned htmx build into the served static dir. The version pin lives
+# in scripts/fetch-htmx.sh (used for local dev and the image alike).
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
+    && ./scripts/fetch-htmx.sh
 
 ENV PYTHONUNBUFFERED=1 \
     SWGOH_DATA_ROOT=/var/lib/swgoh-reviewer/data \
