@@ -385,9 +385,21 @@ def create_app(outdir=None, db_path=None, comlink=None):
             "cs": last["chainStars"] if last else {},
         }
 
+    def game_data_missing():
+        """True when the ROTE doc the calculator/planner read per request
+        isn't on disk yet (a missing units cache is tolerated)."""
+        return not (outdir / "rote" / "t05D.json").exists()
+
     @app.get("/g/{guild_id}/calc", response_class=HTMLResponse)
     def guild_calc(guild_id: str, request: Request):
         require_guild(guild_id)
+        if game_data_missing():
+            return templates.TemplateResponse(
+                request,
+                "calc.html",
+                {"guild_id": guild_id, "guild_name": guild_display(db.get_guild(guild_id)),
+                 "nav": guild_nav("Calculator", guild_id), "game_data_missing": True},
+            )
         data, days, _state, deploy, uz, um = calc_view(guild_id, request)
         ctx = calc_body_context(guild_id, data, days, deploy, uz, um, can_edit=can_edit(guild_id, request))
         ctx["guild_name"] = data["guildName"]
@@ -537,6 +549,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}/platoons", response_class=HTMLResponse)
     def guild_platoons(guild_id: str, request: Request, day: int = 1):
         require_guild(guild_id)
+        if game_data_missing():
+            return templates.TemplateResponse(
+                request,
+                "planner.html",
+                {"guild_id": guild_id, "guild_name": guild_display(db.get_guild(guild_id)),
+                 "nav": guild_nav("Planner", guild_id), "game_data_missing": True, "day": 1},
+            )
         data, days_state, fills, plan_name, is_draft = planner_view(guild_id, request)
         d = max(1, min(6, day))
         ctx = planner_day_ctx(guild_id, days_state, fills, d, can_edit(guild_id, request))
@@ -549,6 +568,8 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}/platoons/day", response_class=HTMLResponse)
     def platoons_day(guild_id: str, request: Request, d: int = 1):
         require_guild(guild_id)
+        if game_data_missing():
+            return HTMLResponse('<div class="notice">Game data isn\'t built yet — an admin should rebuild it.</div>')
         data, days_state, fills, _n, _d = planner_view(guild_id, request)
         ctx = planner_day_ctx(guild_id, days_state, fills, max(1, min(6, d)), can_edit(guild_id, request))
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
@@ -924,10 +945,20 @@ def create_app(outdir=None, db_path=None, comlink=None):
     def admin_page(request: Request, linked: str = Query(default=""), linked_ally: str = Query(default="")):
         if not is_admin(request):
             return RedirectResponse("/admin/login", status_code=302)
+        guilds = []
+        for g in db.list_guilds():
+            job = db.latest_job(g["id"])
+            guilds.append({**g, "last_job_status": job["status"] if job else None})
         return templates.TemplateResponse(
             request,
             "admin.html",
-            {"guilds": db.list_guilds(), "links": db.list_discord_links(), "linked": linked, "linked_ally": linked_ally},
+            {
+                "guilds": guilds,
+                "links": db.list_discord_links(),
+                "recent_jobs": db.recent_jobs(12),
+                "linked": linked,
+                "linked_ally": linked_ally,
+            },
         )
 
     @app.post("/admin/links")
@@ -937,21 +968,10 @@ def create_app(outdir=None, db_path=None, comlink=None):
         db.set_discord_link(discord_id.strip(), allycode.strip())
         return RedirectResponse(f"/admin?linked={quote(discord_id.strip())}&linked_ally={quote(allycode.strip())}", status_code=303)
 
-    @app.get("/admin/g/{guild_id}", response_class=HTMLResponse)
-    def admin_guild(guild_id: str, request: Request):
-        if not is_admin(request):
-            return RedirectResponse("/admin/login", status_code=302)
-        g = require_guild(guild_id)
-        return templates.TemplateResponse(
-            request,
-            "admin_guild.html",
-            {
-                "guild_id": guild_id,
-                "guild_name": guild_display(g),
-                "last_refresh": g["last_refresh"],
-                "job": db.latest_job(guild_id),
-            },
-        )
+    @app.post("/admin/game-data")
+    def rebuild_game_data(_ok: bool = Depends(require_admin)):
+        runner.enqueue("game-data", None, runner.rebuild_game_data)
+        return RedirectResponse("/admin", status_code=303)
 
     @app.post("/admin/guilds")
     def register_guild(
@@ -980,19 +1000,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 raise HTTPException(404, "ally code resolved to no guild")
         db.upsert_guild(guild_id, name=name)
         runner.enqueue("refresh", guild_id, lambda: runner.refresh_guild(guild_id, comlink))
-        return RedirectResponse(f"/admin/g/{guild_id}", status_code=303)
+        return RedirectResponse("/admin", status_code=303)
 
     @app.post("/admin/guilds/{guild_id}/refresh")
     def refresh_guild(guild_id: str, _ok: bool = Depends(require_admin)):
         require_guild(guild_id)
         runner.enqueue("refresh", guild_id, lambda: runner.refresh_guild(guild_id, comlink))
-        return RedirectResponse(f"/admin/g/{guild_id}", status_code=303)
-
-    @app.post("/admin/guilds/{guild_id}/regen")
-    def regen_guild(guild_id: str, _ok: bool = Depends(require_admin)):
-        g = require_guild(guild_id)
-        runner.enqueue("regen", guild_id, lambda: runner.regen(guild_id, squads_json=g.get("squads_json")))
-        return RedirectResponse(f"/admin/g/{guild_id}", status_code=303)
+        return RedirectResponse("/admin", status_code=303)
 
     @app.post("/admin/guilds/{guild_id}/remove")
     def remove_guild(guild_id: str, confirm: str = Form(default=""), _ok: bool = Depends(require_admin)):

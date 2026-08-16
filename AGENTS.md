@@ -79,10 +79,13 @@ doc), `start_comlink.sh` (comlink in Docker).
   and discards raw rosters. `--limit N` for a small batch.
 - **Rebuild game-data caches after a game update:** `fetch_guild.py
   --refresh-game`, `guild_summary.py --refresh-game`, `build_caches.py`, or
-  `rote.py --refresh`.
-- **Regenerate the squad report data:** `squad_report.py <guild_id>`
-  (the admin "Regenerate pages" runs it). The calculator/planner/assignments
-  pages render live from the caches + plans, so they need no regen.
+  `rote.py --refresh`. The admin "Rebuild game data" button runs the same
+  stack (caches + name map + ROTE doc) as a background job, and the nightly
+  job rebuilds it before the guild refreshes.
+- **Rebuild the squad report data:** `squad_report.py <guild_id>` (also runs
+  after every guild refresh and after saving squad definitions — there is no
+  manual button). The calculator/planner/assignments pages render live from
+  the caches + plans.
 - **Run the web app locally:** `uv run python server/app.py` (reads
   `SWGOH_PORT`, default 8000 — the repo's gitignored `.env` sets it to 8500).
 - **Deploy:** push to `main` → CI builds the image → the box's
@@ -113,8 +116,8 @@ doc), `start_comlink.sh` (comlink in Docker).
 - **Writes are gated on the admin session or a Discord-signed-in officer** of
   the guild (`require_guild_role`, `can_edit`/`canPublish` derived server-side
   from the linked player's roster role; anonymous → 401, signed-in
-  non-officer → 403). Global admin routes (`admin/*`, register/refresh/regen/
-  remove, create_link) stay admin-only. The shared header shows a global
+  non-officer → 403). Global admin routes (`admin/*`, register/refresh/remove,
+  create_link, game-data) stay admin-only. The shared header shows a global
   `Sign in with Discord` / username + `Sign out` control when OAuth is
   configured (`auth_state` Jinja global in `base.html`); officers log in via
   OAuth (`identify` scope) and their role comes from the linked player's
@@ -142,8 +145,11 @@ doc), `start_comlink.sh` (comlink in Docker).
   `GET /assignments/member/<ac>/markdown`. Logic in `assignments_logic.py`.
 - **Report** (`/g/<id>/report`): `report.html` + `_report_{matrix,squads,
   players,needs}.html`; `GET /report/view?view=`. Logic in `report_logic.py`.
-- **Admin / index / login**: `admin*.html`, `index.html`, `admin_login.html`
-  — plain Jinja over the existing endpoints (no guild nav).
+- **Admin / index / login**: `admin.html` (the single admin hub: register
+  guild, link Discord user, Rebuild game data, guilds table with per-row
+  view/refresh/remove, recent jobs), `index.html`, `admin_login.html` — plain
+  Jinja over the existing endpoints (no guild nav). There is no `/admin/g/<id>`
+  page; guild actions live in the hub's table.
 
 ## Data layout (`data/`)
 

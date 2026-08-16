@@ -134,12 +134,39 @@ class JobRunner:
                 results.append({"guildId": g["id"], "status": "error", "message": str(exc)})
         return results
 
+    def rebuild_game_data(self):
+        """Rebuild the shared (non-guild) game caches + ROTE doc from the static
+        gamedata repo (no EA/comlink). Re-downloads only when the game version
+        changed; cheap no-op on an unchanged cache. Logs a `game-data` job."""
+        with self._lock:
+            start = datetime.now(timezone.utc).isoformat()
+            try:
+                from swgoh_reviewer import build_caches as bc
+                from swgoh_reviewer.config import gamedata_base_url
+
+                if not gamedata_base_url():
+                    raise JobError("static game data is disabled (SWGOH_GAMEDATA_BASE empty)")
+                if bc.main(["--outdir", str(self.outdir)]) not in (0, None):
+                    raise JobError("game-cache build failed")
+                if tb.main([TB_ID, "--outdir", str(self.outdir)]) not in (0, None):
+                    raise JobError("ROTE doc build failed")
+                self.db.log_job(None, "game-data", "ok", started_at=start)
+                return {"status": "ok", "kind": "game-data"}
+            except Exception as exc:  # noqa: BLE001 - report as job failure
+                self.db.log_job(None, "game-data", "error", str(exc), started_at=start)
+                raise JobError(str(exc)) from exc
+
     # ---- nightly schedule ----
     def nightly_loop(self, stop_event, comlink, hour=4):
-        """Run refresh_all once per day at `hour` (UTC). Blocks until stop_event set."""
+        """Run once per day at `hour` (UTC): rebuild the shared game data, then
+        refresh every guild. Blocks until stop_event set."""
         while not stop_event.wait(self._seconds_until(hour)):
             if stop_event.is_set():
                 break
+            try:
+                self.rebuild_game_data()
+            except Exception:  # noqa: BLE001 - keep the loop alive
+                pass
             try:
                 self.refresh_all(comlink)
             except Exception:  # noqa: BLE001 - keep the loop alive

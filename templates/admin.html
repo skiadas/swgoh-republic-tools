@@ -16,20 +16,43 @@
   <button>Register + refresh</button>
 </form>
 
-<h2>Link a Discord user to a player</h2>
-<form method="post" action="/admin/links">
-  <input name="discord_id" placeholder="discord user id" required>
-  <input name="allycode" placeholder="ally code" required>
-  <button>Create link</button>
+<h2>Game data</h2>
+<form method="post" action="/admin/game-data">
+  <button>Rebuild game data</button>
+  <span class="muted">Rebuilds the shared game caches and ROTE doc from the static gamedata (also runs nightly before guild refreshes).</span>
 </form>
 
 <h2>Guilds</h2>
-<table><tr><th>id</th><th>name</th><th>last refresh</th><th></th></tr>
-{% for g in guilds %}
-<tr><td>{{ g.id }}</td><td>{{ g.name }}</td><td>{{ (g.last_refresh or '—')[:19] }}</td>
-  <td><a href="/admin/g/{{ g.id }}">manage</a></td></tr>
-{% endfor %}
+<table>
+  <tr><th>id</th><th>name</th><th>last refresh</th><th>last job</th><th></th></tr>
+  {% for g in guilds %}
+  <tr>
+    <td>{{ g.id }}</td>
+    <td>{{ g.name }}</td>
+    <td>{{ (g.last_refresh or '—')[:19] }}</td>
+    <td>{{ g.last_job_status or '—' }}</td>
+    <td>
+      <a href="/g/{{ g.id }}">view</a>
+      <form method="post" action="/admin/guilds/{{ g.id }}/refresh" style="display:inline"><button>Refresh</button></form>
+      <form method="post" action="/admin/guilds/{{ g.id }}/remove" style="display:inline"
+        onsubmit="return confirm('Remove this guild and its data?')">
+        <input type="hidden" name="confirm" value="1">
+        <button>Remove</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
 </table>
+
+{% if recent_jobs %}
+<h2>Recent jobs</h2>
+<table>
+  <tr><th>kind</th><th>guild</th><th>status</th><th>started</th></tr>
+  {% for j in recent_jobs %}
+  <tr><td>{{ j.kind }}</td><td>{{ j.guild_id or '—' }}</td><td>{{ j.status }}</td><td>{{ (j.started_at or '')[:19] }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
 
 {% if links %}
 <h2>Discord links</h2>
@@ -37,4 +60,11 @@
 {% for l in links %}<tr><td>{{ l.discord_id }}</td><td>{{ l.allycode or '' }}</td><td>{{ l.linked_by or '' }}</td></tr>{% endfor %}
 </table>
 {% endif %}
+
+<h2>Link a Discord user to a player</h2>
+<form method="post" action="/admin/links">
+  <input name="discord_id" placeholder="discord user id" required>
+  <input name="allycode" placeholder="ally code" required>
+  <button>Create link</button>
+</form>
 {% endblock %}

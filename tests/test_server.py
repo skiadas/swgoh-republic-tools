@@ -418,6 +418,19 @@ def test_calc_optimizer_matches_js_sanity():
     assert optimize(data, all_est(30), False, False)["stars"] == 41
 
 
+def test_calc_planner_notice_without_game_data(tmp_path):
+    make_data(tmp_path)
+    (tmp_path / "rote" / "t05D.json").unlink()
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    calc = client.get("/g/G1/calc")
+    assert calc.status_code == 200 and "Game data isn't built yet" in calc.text
+    planner = client.get("/g/G1/platoons")
+    assert planner.status_code == 200 and "Game data isn't built yet" in planner.text
+    day = client.get("/g/G1/platoons/day", params={"d": 1})
+    assert day.status_code == 200
+
+
 def test_planner_page_and_edit(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
@@ -633,10 +646,11 @@ def test_admin_link_create(tmp_path):
     assert client.app.state.db.get_discord_link("d9")["allycode"] == "999"
 
 
-def test_browser_forms_never_dump_json(tmp_path):
+def test_browser_forms_never_dump_json(tmp_path, monkeypatch):
     """Every <form>/hx-post target in the templates must answer with HTML or a
     redirect on success — never a bare JSON dump (regression for the admin link
     form that used to return JSON)."""
+    monkeypatch.setenv("SWGOH_GAMEDATA_BASE", "")  # game-data job fails fast offline
     make_data(tmp_path)
     client = make_client(tmp_path)
     register_guild(client, tmp_path)
@@ -647,7 +661,7 @@ def test_browser_forms_never_dump_json(tmp_path):
         ("/admin/links", {"discord_id": "d1", "allycode": "123"}),
         ("/admin/guilds", {"guild_id": "G1"}),
         (f"/admin/guilds/G1/refresh", {}),
-        (f"/admin/guilds/G1/regen", {}),
+        ("/admin/game-data", {}),
         ("/g/G1/plans/save", {"name": "X"}),
         ("/g/G1/plans/working", {"plan_id": ""}),
         (f"/g/G1/plans/{pid}/ui-set-current", {}),
@@ -671,7 +685,7 @@ def test_register_guild_form(tmp_path, monkeypatch):
     # guild_id via form body registers the guild and redirects immediately
     monkeypatch.setattr(client.app.state.runner, "refresh_guild", lambda gid, comlink: {"guildId": gid})
     r = client.post("/admin/guilds", data={"guild_id": "G1"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/admin/g/G1"
+    assert r.status_code == 303 and r.headers["location"] == "/admin"
     g = client.app.state.db.get_guild("G1")
     assert g is not None
     # a "running" job row was logged (the async worker may or may not have run yet)
@@ -679,18 +693,20 @@ def test_register_guild_form(tmp_path, monkeypatch):
     assert job is not None and job["kind"] == "refresh" and job["status"] == "running"
 
 
-def test_admin_refresh_async(tmp_path):
-    """Admin refresh/regen return immediately (303) and enqueue a job."""
+def test_admin_refresh_and_game_data_async(tmp_path, monkeypatch):
+    """Admin refresh/game-data return immediately (303) and enqueue a job."""
     make_data(tmp_path)
     client = make_client(tmp_path)
     register_guild(client, tmp_path)
     client.post("/admin/login", data={"token": "secret"})
     r = client.post("/admin/guilds/G1/refresh", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/admin/g/G1"
+    assert r.status_code == 303 and r.headers["location"] == "/admin"
     assert client.app.state.db.latest_job("G1")["kind"] == "refresh"
-    r = client.post("/admin/guilds/G1/regen", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/admin/g/G1"
-    assert client.app.state.db.latest_job("G1")["kind"] == "regen"
+    # game-data job: disable the static source so the async worker fails fast offline
+    monkeypatch.setenv("SWGOH_GAMEDATA_BASE", "")
+    r = client.post("/admin/game-data", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/admin"
+    assert client.app.state.db.latest_job(None)["kind"] == "game-data"
 
 
 def test_startup_marks_stale_running_jobs(tmp_path):

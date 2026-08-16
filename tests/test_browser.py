@@ -123,15 +123,15 @@ def test_admin_login_flow(page, app_url, errors):
 
 
 @pytest.mark.browser
-def test_admin_guild_page(admin_page, app_url, errors):
+def test_admin_hub(admin_page, app_url, errors):
     page = admin_page
     page.goto(f"{app_url}/admin")
     page.locator("h1", has_text="Admin").wait_for()
-    page.click("a:has-text('manage')")
-    page.wait_for_url("**/admin/g/**")
-    assert page.locator("button", has_text="Refresh now (fetch from EA)").count() == 1
-    assert page.locator("button", has_text="Regenerate pages (from cache)").count() == 1
-    assert page.locator("button", has_text="Remove guild").count() == 1
+    assert page.locator("button", has_text="Rebuild game data").count() == 1, "game-data rebuild button on the hub"
+    guild_row = page.locator(f'tr:has-text("{GUILD}")').first
+    assert guild_row.locator('a[href="/g/%s"]' % GUILD).count() == 1, "guild row links to the public page"
+    assert guild_row.locator(f'form[action="/admin/guilds/{GUILD}/refresh"] button', has_text="Refresh").count() == 1
+    assert guild_row.locator(f'form[action="/admin/guilds/{GUILD}/remove"] button', has_text="Remove").count() == 1
     assert not errors, f"console errors: {errors}"
 
 
@@ -762,7 +762,7 @@ def test_crawl_officer_pages(page, app_url, errors):
 @pytest.mark.browser
 def test_crawl_admin_pages(page, app_url, errors):
     _set_role(page, app_url, "admin")
-    paths = [("/admin", "Admin"), (f"/admin/g/{GUILD}", "Refresh now")] + list(PATH_MARKERS.items())
+    paths = [("/admin", "Rebuild game data")] + list(PATH_MARKERS.items())
     for path, marker in paths:
         page.goto(f"{app_url}{path}")
         assert marker in page.locator("body").text_content(), f"{path} should show {marker!r}"

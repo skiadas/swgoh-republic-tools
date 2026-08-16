@@ -13,11 +13,7 @@
 
 {% if admin %}
 <div class="card">
-  <a href="/admin/g/{{ guild_id }}">Manage</a>
   <a href="/admin">Admin</a>
-  <form method="post" action="/admin/guilds/{{ guild_id }}/refresh" style="display:inline">
-    <button>Refresh now</button>
-  </form>
 </div>
 {% endif %}
 

@@ -151,6 +151,9 @@ class DB:
             return self._row("SELECT * FROM job_log ORDER BY id DESC LIMIT 1")
         return self._row("SELECT * FROM job_log WHERE guild_id = ? ORDER BY id DESC LIMIT 1", (guild_id,))
 
+    def recent_jobs(self, limit=10):
+        return self._all("SELECT * FROM job_log ORDER BY id DESC LIMIT ?", (limit,))
+
     def mark_running_interrupted(self):
         """Mark any 'running' jobs as interrupted (a restart killed their worker)."""
         self._exec(
