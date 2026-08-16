@@ -46,14 +46,14 @@ TEMPLATES_DIR = REPO_ROOT / "templates"
 STATIC_DIR = SERVER_DIR / "static"
 
 
-def _fmt(n, compact=False):
+def _fmt(n, compact=True):
     v = float(n or 0)
+    if not compact:
+        return f"{int(v):,}"
     a = abs(v)
     for mul, suf in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
         if a >= mul:
             x = v / mul
-            if compact:
-                return f"{int(x)}{suf}"
             return (f"{x:.1f}".rstrip("0").rstrip(".") if x != int(x) else str(int(x))) + suf
     return str(int(v))
 

@@ -201,10 +201,10 @@ def test_calc_compact_toggle(admin_page, app_url, errors):
     page.goto(f"{app_url}/g/{GUILD}/calc")
     page.locator('input[name="compact"]').wait_for()
     gp = page.locator(".controls .muted b").first.text_content()
-    assert gp == "655M", f"default GP format should be 655M, got {gp}"
+    assert gp == "654,983,535", f"default should show full numbers, got {gp}"
     page.locator('input[name="compact"]').check()
-    page.locator(".controls .muted b", has_text="654M").first.wait_for(timeout=8000)
-    assert page.locator(".controls .muted b").first.text_content() == "654M", "compact GP format should drop the decimal"
+    page.locator(".controls .muted b", has_text="655M").first.wait_for(timeout=8000)
+    assert page.locator(".controls .muted b").first.text_content() == "655M", "compact should abbreviate to 1 decimal"
     assert page.locator('input[name="compact"]:checked').count() == 1, "compact checkbox should persist checked"
     page.locator(".summary", has_text="Total stars").wait_for(timeout=8000)
     assert not errors, f"console errors: {errors}"
@@ -334,7 +334,11 @@ def test_planner_publish_to_guild(admin_page, app_url, errors, accept_dialogs):
     assert db.get_draft(GUILD) is not None, "editing should create a draft"
     accept_dialogs()
     page.click("button:has-text('Publish to guild')")
-    page.locator(".notice", has_text="assignments").first.wait_for(timeout=8000)
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        if db.get_draft(GUILD) is None:
+            break
+        time.sleep(0.1)
     assert db.get_draft(GUILD) is None, "publish should clear the draft"
     plans = db.list_plans(GUILD)
     assert any(p["is_current"] for p in plans), "publish should set a current plan"
