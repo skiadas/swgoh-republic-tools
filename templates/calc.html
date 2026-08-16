@@ -114,6 +114,26 @@
   function hideOpt() { document.getElementById('opt').style.display = 'none'; }
   function showPlans() { document.getElementById('plans').style.display = 'flex'; }
   function hidePlans() { document.getElementById('plans').style.display = 'none'; }
+  let calcAnchor = null;
+  document.addEventListener("change", function (ev) {
+    const t = ev.target;
+    if (t.name && t.closest("#calc")) calcAnchor = t.name;
+  });
+  document.body.addEventListener("htmx:afterSwap", function (ev) {
+    const target = ev.detail.target;
+    if (target && target.id === "calc" && calcAnchor) {
+      const name = calcAnchor;
+      calcAnchor = null;
+      const el = document.querySelector('#calc [name="' + name.replace(/"/g, '\\"') + '"]');
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (r.top < 0 || r.bottom > window.innerHeight) {
+          el.scrollIntoView({ block: "center" });
+          el.focus({ preventScroll: true });
+        }
+      }
+    }
+  });
   function optToggleMode(mode) {
     document.getElementById('opt-level').style.display = mode === 'level' ? '' : 'none';
     document.getElementById('opt-planet').style.display = mode === 'planet' ? '' : 'none';

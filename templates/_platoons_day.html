@@ -30,7 +30,7 @@
       </h4>
       {% for cell in platoon.cells %}
       <div class="cell {{ 'cur' if cell.cur else ('cov' if cell.covered_ac else 'open') }}{{ ' warn' if cell.warnings }}" title="{{ cell.warnings|join('; ') }}">
-        <div class="u">{{ cell.unit }} <span class="n" title="{{ cell.eligible }} eligible">{{ cell.eligible }}</span></div>
+        <div class="u" title="{{ cell.unit }}">{{ cell.unit }} <span class="n" title="{{ cell.eligible }} eligible">{{ cell.eligible }}</span></div>
         {% if can_edit %}
         <button type="button" class="chip{{ ' cur' if cell.cur else (' cov' if cell.covered_ac else '') }}{{ ' warn' if cell.warnings }}"
           hx-get="/g/{{ guild_id }}/platoons/picker?planet={{ planet.name|urlencode }}&slot={{ cell.slot }}&day={{ day }}"
