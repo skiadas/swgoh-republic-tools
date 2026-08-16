@@ -1,15 +1,70 @@
 {% extends "base.html" %}
 
-{% block title %}{{ guild_name }} · Home — SWGOH reviewer{% endblock %}
-{% block page_title %}{{ guild_name }} · Home{% endblock %}
+{% block title %}{{ guild_name }} — SWGOH reviewer{% endblock %}
+{% block page_title %}{{ guild_name }}{% endblock %}
 {% block header_sub %}{{ guild_id }} · last refresh {{ last_refresh or "—" }}{% endblock %}
 
 {% block main %}
-{% if job %}
-<div class="card">Job: <b>{{ job.kind }}</b> · {{ job.status }} · started {{ (job.started_at or "")[:19] }}
-  {% if job.message %}<span class="muted">· {{ job.message[:120] }}</span>{% endif %}
-</div>
+{% if job and job.status in ("error", "failed") %}
+<div class="warnbox">Last refresh <b>{{ job.kind }}</b> failed · {{ job.status }}{% if job.message %}: {{ job.message[:200] }}{% endif %}</div>
 {% endif %}
+
+<div class="card">
+  <strong>{{ guild_name }}</strong>
+  {% if stats %}
+  · {{ stats.memberCount }} members · {{ stats.totalGP|fmt }} GP ({{ stats.averageGP|fmt }} avg)
+  {% else %}
+  · no roster summary yet
+  {% endif %}
+  · <span class="muted">last refresh {{ last_refresh or "—" }}</span>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 6px">Roster at a glance</h2>
+  {% if stats %}
+  <table>
+    <tr>
+      <td>Galactic power</td>
+      <td>{{ stats.totalGP|fmt }} total · {{ stats.averageGP|fmt }} avg</td>
+    </tr>
+    <tr><td>Characters / ships GP</td><td>{{ stats.charGP|fmt }} / {{ stats.shipGP|fmt }}</td></tr>
+    <tr>
+      <td>Relics</td>
+      <td>{{ stats.relics.total|pfmt }} total · {{ stats.relics.r5plus|pfmt }} R5+ · {{ stats.relics.r9plus|pfmt }} R9+</td>
+    </tr>
+    {% if stats.gls %}
+    <tr>
+      <td>Galactic Legends</td>
+      <td>{% for name, n in stats.gls.items() %}{{ name }} ×{{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</td>
+    </tr>
+    {% endif %}
+  </table>
+  {% else %}
+  <div class="notice">No roster data yet — an admin should refresh this guild.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 6px">TB plan</h2>
+  {% if plan %}
+  <table>
+    <tr><td>Deploy %</td><td>{{ plan.deploy_pct }}%</td></tr>
+    <tr><td>Days</td><td>{{ plan.days or "—" }}</td></tr>
+    <tr>
+      <td>Unlocks</td>
+      <td>
+        {% if plan.unlock_zeffo %}Zeffo{% endif %}{% if plan.unlock_zeffo and plan.unlock_mandalore %} · {% endif %}{% if plan.unlock_mandalore %}Mandalore{% endif %}
+        {% if not plan.unlock_zeffo and not plan.unlock_mandalore %}<span class="muted">none</span>{% endif %}
+      </td>
+    </tr>
+    {% if plan_line %}<tr><td>Plan</td><td>{{ plan_line }}</td></tr>{% endif %}
+    {% if assignments_line %}<tr><td>Assignments</td><td>{{ assignments_line }}</td></tr>{% endif %}
+  </table>
+  {% if assignments_line %}<p><a href="/g/{{ guild_id }}/assignments">Assignments</a></p>{% endif %}
+  {% else %}
+  <div class="notice">No current plan.<br>Build one on the <a href="/g/{{ guild_id }}/calc">Calculator</a> to set deploy targets and unlock goals.</div>
+  {% endif %}
+</div>
 
 {% if admin %}
 <div class="card">

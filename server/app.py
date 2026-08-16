@@ -32,7 +32,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from swgoh_reviewer import assignments_logic, calc, calc_logic, planner, platoons, report_logic
+from swgoh_reviewer import assignments_logic, calc, calc_logic, planner, platoons, report_logic, roster_stats
 from swgoh_reviewer.comlink import DEFAULT_COMLINK
 from swgoh_reviewer.config import data_root
 from server import auth
@@ -260,6 +260,26 @@ def create_app(outdir=None, db_path=None, comlink=None):
         session = session_user(request)
         roles = auth.roles_for(db, outdir, session["discord_id"]) if session else {}
         officer = auth.is_admin_user(session) or auth.is_officer(roles, guild_id)
+        stats = roster_stats.guild_stats(outdir, guild_id)
+        plan = None
+        assignments_line = no_plan = plan_line = None
+        row = db.get_current_plan(guild_id)
+        if row:
+            payload = json.loads(row["payload"] or "{}")
+            plan = {
+                "name": row["name"],
+                "updated_at": (row["updated_at"] or "")[:16].replace("T", " "),
+                "owner_name": row["owner_name"] or "admin",
+                "deploy_pct": payload.get("deployPct"),
+                "unlock_zeffo": bool(payload.get("unlockZeffo")),
+                "unlock_mandalore": bool(payload.get("unlockMandalore")),
+                "days": payload.get("days"),
+            }
+        try:
+            _data, _entries, assignments_line, plan_line, no_plan = assignments_view(guild_id)
+        except Exception:
+            assignments_line = plan_line = None
+            no_plan = True
         return templates.TemplateResponse(
             request,
             "guild.html",
@@ -268,6 +288,11 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 "guild_name": guild_display(g),
                 "last_refresh": (g["last_refresh"] or "")[:19],
                 "job": job,
+                "stats": stats,
+                "plan": plan,
+                "plan_line": plan_line,
+                "assignments_line": assignments_line,
+                "no_plan": no_plan,
                 "admin": is_admin(request),
                 "officer": officer,
                 "current_squads": g.get("squads_json") or "",

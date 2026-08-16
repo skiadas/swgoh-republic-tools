@@ -142,7 +142,7 @@ def test_guild_home_and_nav(admin_page, app_url, errors):
     page.locator("nav.gnav").wait_for()
     links = page.locator("nav.gnav a")
     hrefs = [links.nth(i).get_attribute("href") for i in range(links.count())]
-    assert hrefs == [f"/g/{GUILD}", f"/g/{GUILD}/report", f"/g/{GUILD}/calc", f"/g/{GUILD}/platoons", f"/g/{GUILD}/assignments"]
+    assert hrefs == ["/", f"/g/{GUILD}", f"/g/{GUILD}/report", f"/g/{GUILD}/calc", f"/g/{GUILD}/platoons", f"/g/{GUILD}/assignments"]
     active = [links.nth(i).text_content() for i in range(links.count()) if links.nth(i).get_attribute("class") == "active"]
     assert active == ["Home"], f"Home should be the active nav item, got {active}"
     assert not errors, f"console errors: {errors}"

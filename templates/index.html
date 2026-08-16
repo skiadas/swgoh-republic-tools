@@ -9,9 +9,9 @@
 <div class="notice">No guilds yet.</div>
 {% else %}
 <table>
-  <tr><th>Guild</th><th>Last refresh</th><th></th></tr>
+  <tr><th>Guild</th><th>Last refresh</th></tr>
   {% for g in guilds %}
-  <tr><td>{{ g.name }}</td><td>{{ (g.last_refresh or '—')[:19] }}</td><td><a href="/g/{{ g.id }}">open</a></td></tr>
+  <tr><td><a href="/g/{{ g.id }}">{{ g.name }}</a></td><td>{{ (g.last_refresh or '—')[:19] }}</td></tr>
   {% endfor %}
 </table>
 {% endif %}

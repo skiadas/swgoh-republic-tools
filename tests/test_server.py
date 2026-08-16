@@ -106,7 +106,30 @@ def test_index_lists_registered_guild(tmp_path):
     r = client.get("/")
     assert r.status_code == 200
     assert "Guild One" in r.text
-    assert "/g/G1" in r.text
+    assert '<a href="/g/G1">Guild One</a>' in r.text
+    assert ">open<" not in r.text
+
+
+def test_guild_home_shows_stats_and_nav(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    r = client.get("/g/G1")
+    assert r.status_code == 200
+    assert "All guilds" in r.text
+    assert "Roster at a glance" in r.text
+    assert "1K" in r.text
+    assert "R9+" in r.text
+    assert "No current plan." in r.text
+
+
+def test_guild_home_outlines_nav_all_guilds(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    home = client.get("/g/G1").text
+    for label in ("All guilds", "Home", "Report", "Calculator", "Planner", "Assignments"):
+        assert label in home, f"nav missing {label}"
 
 
 def test_guild_pages_serve(tmp_path):

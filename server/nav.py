@@ -13,7 +13,7 @@ def guild_nav(active, guild_id=None):
     """Nav items for a guild page; `active` is the label of the current page."""
     if not guild_id:
         return []
-    return [
+    return [{"label": "All guilds", "href": "/", "active": False}] + [
         {"label": label, "href": href.format(guild_id=guild_id), "active": label == active}
         for label, href in GUILD_PAGES
     ]
