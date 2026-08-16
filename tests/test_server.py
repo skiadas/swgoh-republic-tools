@@ -243,6 +243,71 @@ def test_plan_management_ui(tmp_path):
     assert client.post("/g/G1/plans/save", data={"name": ""}).status_code == 400
 
 
+def test_discord_oauth_callback(tmp_path, monkeypatch):
+    import os
+
+    from server import auth
+
+    make_data(tmp_path)
+    monkeypatch.setenv("SWGOH_DISCORD_CLIENT_ID", "cid")
+    monkeypatch.setenv("SWGOH_DISCORD_CLIENT_SECRET", "csec")
+    monkeypatch.setenv("SWGOH_DISCORD_REDIRECT", "http://x/auth/discord/callback")
+    monkeypatch.setattr(auth, "exchange_code", lambda code, redirect: ("123456789", "Officer"))
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    from server.db import DB
+
+    DB(tmp_path / "service.db").set_discord_link("123456789", "123")
+    client.get("/auth/discord/callback", params={"code": "abc"})
+    assert client.cookies.get(auth.SESSION_COOKIE), "callback should set the session cookie"
+    me = client.get("/auth/me")
+    assert me.status_code == 200 and "Officer" in me.text and "G1" in me.text and "leader" in me.text
+
+
+def test_officer_can_edit_guild(tmp_path):
+    from server import auth
+    from server.db import DB
+
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    DB(tmp_path / "service.db").set_discord_link("d1", "123")  # G1 member memberLevel 4 = leader
+    client.cookies.set(auth.SESSION_COOKIE, auth.sign_session({"discord_id": "d1", "username": "Officer"}))
+    # editable calc view
+    r = client.get("/g/G1/calc")
+    assert r.status_code == 200 and 'hx-post="/g/G1/calc/set"' in r.text, "officer should get the editable calc"
+    # planner editable
+    r = client.get("/g/G1/platoons")
+    assert r.status_code == 200 and "Generate all" in r.text
+    # guild writes succeed
+    assert client.post(
+        "/g/G1/calc/set", data={"deploy": 100, "d1-Coruscant": "1", "d1-Coruscant-plats": "3", "d1-Coruscant-cm": "50"}
+    ).status_code == 200
+    assert client.post("/g/G1/plans/save", data={"name": "Week 1"}).status_code == 200
+    assert client.post("/g/G1/platoons/assign", data={"planet": "Coruscant", "slot": 0, "day": 1, "ac": "123"}).status_code == 200
+    assert client.post("/g/G1/platoons/publish?d=1").status_code == 200
+    # read-only for the public view still works for a non-editor
+    assert client.get("/g/G1/report").status_code == 200
+
+
+def test_guild_write_requires_officer(tmp_path):
+    from server import auth
+    from server.db import DB
+
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    # anonymous -> 401 on guild writes
+    assert client.post("/g/G1/calc/set", data={"deploy": 100}).status_code == 401
+    assert client.post("/g/G1/plans", json={"name": "x", "payload": {"days": {}, "fills": {}}}).status_code == 401
+    # signed in but not an officer of this guild -> 403 and read-only pages
+    DB(tmp_path / "service.db").set_discord_link("d2", "999999")
+    client.cookies.set(auth.SESSION_COOKIE, auth.sign_session({"discord_id": "d2", "username": "Member"}))
+    assert client.post("/g/G1/calc/set", data={"deploy": 100}).status_code == 403
+    assert client.post("/g/G1/platoons/publish?d=1").status_code == 403
+    assert "Read-only" in client.get("/g/G1/calc").text, "non-officer should see the read-only calc"
+
+
 def test_assignments_roster(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)

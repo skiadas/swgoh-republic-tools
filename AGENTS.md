@@ -110,9 +110,15 @@ doc), `start_comlink.sh` (comlink in Docker).
   plan) and marks it current; **Save as new plan** snapshots the working
   content into a new named plan without changing current. The draft row is
   still shared per guild, so simultaneous officers share the edit buffer.
-- **Writes are gated on the admin session** (`canPublish` derived
-  server-side); when Discord OAuth is configured, officer roles will be
-  admitted to the same endpoints. Anonymous users view only.
+- **Writes are gated on the admin session or a Discord-signed-in officer** of
+  the guild (`require_guild_role`, `can_edit`/`canPublish` derived server-side
+  from the linked player's roster role; anonymous → 401, signed-in
+  non-officer → 403). Global admin routes (`admin/*`, register/refresh/regen/
+  remove, create_link) stay admin-only. The shared header shows a global
+  `Sign in with Discord` / username + `Sign out` control when OAuth is
+  configured (`auth_state` Jinja global in `base.html`); officers log in via
+  OAuth (`identify` scope) and their role comes from the linked player's
+  `memberLevel` (3=officer, 4=leader) in the roster manifest.
 - Plans carry `{deployPct, unlockZeffo, unlockMandalore, days, fills}`;
   `fills` is `{planet: {day: {slotIdx: allyCode}}}` (slotIdx =
   platoon*15+pos, day/slot keys as strings after JSON).
@@ -179,8 +185,10 @@ doc), `start_comlink.sh` (comlink in Docker).
 - Internal ids are never surfaced to users — e.g. the ROTE campaign id `t05D`
   is a code constant only.
 - Plans are server-side (see above); local drafts + JSON export/import were
-  superseded by the draft/publish model. Discord OAuth will admit officer
-  roles to plan/calc/planner editing without schema changes.
+  superseded by the draft/publish model. Discord OAuth (`identify` scope)
+  admits officer/leader roles to calc/planner/plan editing via the linked
+  player's roster `memberLevel`; a real Discord-server role check or
+  self-service linking would be follow-ups.
 - The working plan is a per-admin cookie, but the draft edit buffer is still
   guild-wide (one `guild_drafts` row) — concurrent officers share it; per-admin
   drafts would be a follow-up if needed.

@@ -160,14 +160,33 @@ def create_app(outdir=None, db_path=None, comlink=None):
 
     def require_guild_role(guild_id: str, request: Request):
         """Allow if an admin session exists, or the viewer is an officer/leader
-        of the guild per the roster."""
+        of the guild per the roster. Anonymous -> 401, non-officer -> 403."""
         if is_admin(request):
             return
         session = session_user(request)
-        roles = auth.roles_for(db, outdir, session.get("discord_id")) if session else {}
+        if not session:
+            raise HTTPException(401, "sign in required")
+        roles = auth.roles_for(db, outdir, session.get("discord_id"))
         if not auth.is_officer(roles, guild_id):
             raise HTTPException(403, "officer role required for this guild")
         return
+
+    def can_edit(guild_id, request):
+        """View/edit rights on a guild's calculator/planner/plans: an admin
+        session, or a Discord-signed-in officer/leader of that guild."""
+        if is_admin(request):
+            return True
+        session = session_user(request)
+        if not session:
+            return False
+        roles = auth.roles_for(db, outdir, session.get("discord_id"))
+        return auth.is_officer(roles, guild_id)
+
+    def auth_state(request):
+        """For the shared header: is Discord login enabled, and who is signed in."""
+        return {"enabled": auth.discord_enabled(), "user": session_user(request)}
+
+    templates.env.globals["auth_state"] = auth_state
 
     # ---------------- discord auth ----------------
 
@@ -359,13 +378,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
     def guild_calc(guild_id: str, request: Request):
         require_guild(guild_id)
         data, days, _state, deploy, uz, um = calc_view(guild_id, request)
-        ctx = calc_body_context(guild_id, data, days, deploy, uz, um, can_edit=is_admin(request))
+        ctx = calc_body_context(guild_id, data, days, deploy, uz, um, can_edit=can_edit(guild_id, request))
         ctx["guild_name"] = data["guildName"]
         ctx["nav"] = guild_nav("Calculator", guild_id)
         return templates.TemplateResponse(request, "calc.html", ctx)
 
     @app.post("/g/{guild_id}/calc/set", response_class=HTMLResponse)
-    async def calc_set(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+    async def calc_set(guild_id: str, request: Request, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         form = await request.form()
         days = {}
@@ -421,7 +440,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         )
 
     @app.post("/g/{guild_id}/calc/optimize", response_class=HTMLResponse)
-    async def calc_optimize(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+    async def calc_optimize(guild_id: str, request: Request, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         form = await request.form()
         mode = str(form.get("mode") or "run")
@@ -509,7 +528,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         require_guild(guild_id)
         data, days_state, fills, plan_name, is_draft = planner_view(guild_id, request)
         d = max(1, min(6, day))
-        ctx = planner_day_ctx(guild_id, days_state, fills, d, is_admin(request))
+        ctx = planner_day_ctx(guild_id, days_state, fills, d, can_edit(guild_id, request))
         ctx["guild_name"] = data["guildName"]
         ctx["nav"] = guild_nav("Planner", guild_id)
         ctx["plan_name"] = plan_name
@@ -520,7 +539,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     def platoons_day(guild_id: str, request: Request, d: int = 1):
         require_guild(guild_id)
         data, days_state, fills, _n, _d = planner_view(guild_id, request)
-        ctx = planner_day_ctx(guild_id, days_state, fills, max(1, min(6, d)), is_admin(request))
+        ctx = planner_day_ctx(guild_id, days_state, fills, max(1, min(6, d)), can_edit(guild_id, request))
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
     @app.get("/g/{guild_id}/platoons/picker", response_class=HTMLResponse)
@@ -570,7 +589,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         )
 
     @app.post("/g/{guild_id}/platoons/assign", response_class=HTMLResponse)
-    async def platoons_assign(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+    async def platoons_assign(guild_id: str, request: Request, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         form = await request.form()
         planet = str(form.get("planet") or "")
@@ -592,7 +611,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
     @app.post("/g/{guild_id}/platoons/generate", response_class=HTMLResponse)
-    async def platoons_generate(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+    async def platoons_generate(guild_id: str, request: Request, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         form = await request.form()
         scope_mode = str(form.get("gen-scope") or "all")
@@ -613,7 +632,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
     @app.post("/g/{guild_id}/platoons/clear", response_class=HTMLResponse)
-    def platoons_clear(guild_id: str, request: Request, d: int = 1, _ok: bool = Depends(require_admin)):
+    def platoons_clear(guild_id: str, request: Request, d: int = 1, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         data, days_state, _fills, _n, _d = planner_view(guild_id, request)
         save_draft(guild_id, days_state, {}, request)
@@ -621,7 +640,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
     @app.post("/g/{guild_id}/platoons/publish", response_class=HTMLResponse)
-    def platoons_publish(guild_id: str, request: Request, d: int = 1, _ok: bool = Depends(require_admin)):
+    def platoons_publish(guild_id: str, request: Request, d: int = 1, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         draft = db.get_draft(guild_id)
         if draft is None:
@@ -720,10 +739,10 @@ def create_app(outdir=None, db_path=None, comlink=None):
     def guild_plans_list(guild_id: str, request: Request):
         require_guild(guild_id)
         plans = [_plan_json(r) for r in db.list_plans(guild_id)]
-        return {"plans": plans, "canPublish": is_admin(request)}
+        return {"plans": plans, "canPublish": can_edit(guild_id, request)}
 
     @app.post("/g/{guild_id}/plans")
-    async def create_plan(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+    async def create_plan(guild_id: str, request: Request, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         data = await request.json()
         payload = data.get("payload")
@@ -734,7 +753,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return {"id": plan_id}
 
     @app.put("/g/{guild_id}/plans/{plan_id}")
-    async def update_plan(guild_id: str, plan_id: int, request: Request, _ok: bool = Depends(require_admin)):
+    async def update_plan(guild_id: str, plan_id: int, request: Request, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         if db.get_plan(plan_id, guild_id) is None:
             raise HTTPException(404, "no such plan")
@@ -751,7 +770,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return {"ok": True}
 
     @app.post("/g/{guild_id}/plans/{plan_id}/current")
-    def set_current_plan(guild_id: str, plan_id: int, _ok: bool = Depends(require_admin)):
+    def set_current_plan(guild_id: str, plan_id: int, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         if db.get_plan(plan_id, guild_id) is None:
             raise HTTPException(404, "no such plan")
@@ -759,7 +778,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return {"ok": True}
 
     @app.delete("/g/{guild_id}/plans/{plan_id}")
-    def delete_plan(guild_id: str, plan_id: int, _ok: bool = Depends(require_admin)):
+    def delete_plan(guild_id: str, plan_id: int, _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         db.delete_plan(plan_id, guild_id)
         return {"ok": True}
@@ -802,7 +821,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))
 
     @app.post("/g/{guild_id}/plans/working", response_class=HTMLResponse)
-    def plans_working(guild_id: str, request: Request, plan_id: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+    def plans_working(guild_id: str, request: Request, plan_id: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         if plan_id and db.get_plan(plan_id, guild_id) is None:
             raise HTTPException(404, "no such plan")
@@ -816,7 +835,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return resp
 
     @app.post("/g/{guild_id}/plans/save", response_class=HTMLResponse)
-    def plans_save(guild_id: str, request: Request, name: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+    def plans_save(guild_id: str, request: Request, name: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         name = name.strip()[:80]
         if not name:
@@ -829,7 +848,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return _plan_cookie(resp, plan_id)
 
     @app.post("/g/{guild_id}/plans/{plan_id}/ui-set-current", response_class=HTMLResponse)
-    def plans_set_current_ui(guild_id: str, plan_id: int, request: Request, next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+    def plans_set_current_ui(guild_id: str, plan_id: int, request: Request, next: str = Form(default=""), _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         if db.get_plan(plan_id, guild_id) is None:
             raise HTTPException(404, "no such plan")
@@ -837,7 +856,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))
 
     @app.post("/g/{guild_id}/plans/{plan_id}/ui-rename", response_class=HTMLResponse)
-    def plans_rename_ui(guild_id: str, plan_id: int, request: Request, name: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+    def plans_rename_ui(guild_id: str, plan_id: int, request: Request, name: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         name = name.strip()[:80]
         if not name:
@@ -848,7 +867,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))
 
     @app.post("/g/{guild_id}/plans/{plan_id}/ui-delete", response_class=HTMLResponse)
-    def plans_delete_ui(guild_id: str, plan_id: int, request: Request, next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+    def plans_delete_ui(guild_id: str, plan_id: int, request: Request, next: str = Form(default=""), _ok: bool = Depends(require_guild_role)):
         require_guild(guild_id)
         db.delete_plan(plan_id, guild_id)
         resp = templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))

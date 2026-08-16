@@ -13,10 +13,12 @@
   }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; background: var(--bg); color: var(--ink); }
-  header { background: var(--navy); color: #fff; padding: 12px 20px; }
+  header { background: var(--navy); color: #fff; padding: 12px 20px; position: relative; }
   header h1 { margin: 0; font-size: 18px; }
   header .sub { font-size: 12px; opacity: .9; margin-top: 4px; }
   header .sub a { color: #9db3e0; }
+  header .auth { position: absolute; right: 20px; top: 14px; font-size: 12px; }
+  header .auth a { color: #9db3e0; text-decoration: none; }
   nav.gnav { display: flex; gap: 18px; background: #fff; border-bottom: 1px solid var(--border); padding: 8px 20px; }
   nav.gnav a { color: var(--link); text-decoration: none; font-size: 13px; padding-bottom: 2px; }
   nav.gnav a.active { font-weight: 700; color: var(--navy); border-bottom: 2px solid var(--navy); }
@@ -38,6 +40,16 @@
 <header>
   <h1>{% block page_title %}{% endblock %}</h1>
   <div class="sub">{% block header_sub %}{% endblock %}</div>
+  {% set s = auth_state(request) %}
+  {% if s.enabled %}
+  <div class="auth">
+    {% if s.user %}
+    <a href="/auth/me">{{ s.user.username }}</a> · <a href="/auth/logout">Sign out</a>
+    {% else %}
+    <a href="/auth/login">Sign in with Discord</a>
+    {% endif %}
+  </div>
+  {% endif %}
 </header>
 {% if nav %}
 <nav class="gnav">
