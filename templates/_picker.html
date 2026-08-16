@@ -1,0 +1,18 @@
+<div class="modal">
+  <header class="mhead"><h2>{{ unit }} <span class="n">{{ members|length }} eligible</span></h2>
+    <button onclick="hidePicker()">&#215;</button></header>
+  <div class="mbody">
+    {% if cur %}
+    <button class="pick-row clear" hx-post="/g/{{ guild_id }}/platoons/assign"
+      hx-vals='{"planet":"{{ planet }}","slot":{{ slot }},"day":{{ day }},"ac":""}'
+      hx-target="#day" hx-swap="innerHTML" hx-on::after-request="hidePicker()">Clear today&#8217;s fill</button>
+    {% endif %}
+    {% for m in members %}
+    <button class="pick-row{{ ' dim' if m.dim }}" title="{{ m.dim_title }}"
+      hx-post="/g/{{ guild_id }}/platoons/assign"
+      hx-vals='{"planet":"{{ planet }}","slot":{{ slot }},"day":{{ day }},"ac":"{{ m.ac }}"}'
+      hx-target="#day" hx-swap="innerHTML" hx-on::after-request="hidePicker()">
+      <span>{{ m.name }}</span><span class="lvl">{{ '★' ~ m.level if m.ship else 'R' ~ m.level }}</span></button>
+    {% endfor %}
+  </div>
+</div>

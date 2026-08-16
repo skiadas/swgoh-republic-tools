@@ -1,7 +1,9 @@
 """Web-layer tests (FastAPI TestClient, no comlink)."""
 
 import json
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from server.app import create_app
@@ -29,12 +31,54 @@ def make_data(tmp_path):
         )
     )
     g.joinpath("G1.summary.json").write_text(
-        json.dumps({"guildId": "G1", "guildName": "Guild One", "memberCount": 1, "members": []})
+        json.dumps(
+            {
+                "guildId": "G1",
+                "guildName": "Guild One",
+                "memberCount": 1,
+                "members": [
+                    {
+                        "name": "P",
+                        "allyCode": 123,
+                        "galacticPower": 1000,
+                        "units": [{"name": "General Skywalker", "baseId": "GENERALSKYWALKER", "combatType": "character", "relicLevel": 9}],
+                    }
+                ],
+            }
+        )
+    )
+    rote = tmp_path / "rote"
+    rote.mkdir()
+    units = [{"baseId": "GENERALSKYWALKER", "name": "General Skywalker"}] + [
+        {"baseId": f"DUMMY{i}", "name": f"Dummy Unit {i}"} for i in range(1, 15)
+    ]
+    rote.joinpath("t05D.json").write_text(
+        json.dumps(
+            {
+                "tbId": "t05D",
+                "phases": [
+                    {
+                        "phase": 1,
+                        "planets": [
+                            {
+                                "name": "Coruscant",
+                                "planetId": "tb3_mixed_phase01_conflict01",
+                                "starThresholds": [1000000, 2000000, 3000000],
+                                "missions": [],
+                                "op": {
+                                    "relicRequirement": 5,
+                                    "platoons": [{"platoon": 1, "reward": "10M", "units": units}],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
     )
     g.joinpath("G1.squads.html").write_text("<html>report</html>")
     g.joinpath("G1.calculator.html").write_text("<html>calc</html>")
     g.joinpath("G1.platoons.html").write_text("<html>platoons</html>")
-    g.joinpath("G1.assignments.html").write_text("<html>assignments</html>")
     return tmp_path
 
 
@@ -74,8 +118,10 @@ def test_guild_pages_serve(tmp_path):
     assert client.get("/g/G1/calc").status_code == 200
     assert client.get("/g/G1/platoons").status_code == 200
     assert client.get("/g/G1/assignments").status_code == 200
-    assert "platoon planner" in client.get("/g/G1").text
-    assert "assignments by member" in client.get("/g/G1").text
+    home = client.get("/g/G1").text
+    for label in ("Home", "Report", "Calculator", "Planner", "Assignments"):
+        assert label in home, f"nav missing {label}"
+    assert "Planner" in home
 
 
 def test_unknown_guild_404(tmp_path):
@@ -154,6 +200,172 @@ def test_plan_rejects_bad_payload_and_unknown_plan(tmp_path):
     assert client.post("/g/G1/plans", json={"name": "x", "payload": "not-an-object"}).status_code == 400
     assert client.put("/g/G1/plans/999", json={"payload": {}}).status_code == 404
     assert client.post("/g/G1/plans/999/current").status_code == 404
+
+
+def test_assignments_roster(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _login_admin(client)
+    payload = {"days": {}, "fills": {"Coruscant": {"1": {"0": "123"}}}, "deployPct": 100, "unlockZeffo": False, "unlockMandalore": False}
+    client.post("/g/G1/plans", json={"name": "Week 1", "payload": payload})
+    r = client.get("/g/G1/assignments")
+    assert r.status_code == 200
+    assert "General Skywalker" in r.text
+    assert "Guild plan “Week 1”" in r.text
+    assert "copyMember" in r.text
+    assert "Planner" in r.text  # shared nav
+    # search fragment
+    r2 = client.get("/g/G1/assignments/roster", params={"search": "P"})
+    assert r2.status_code == 200 and "General Skywalker" in r2.text
+    r3 = client.get("/g/G1/assignments/roster", params={"search": "zzz"})
+    assert "No members match" in r3.text
+    # copy markdown
+    md = client.get("/g/G1/assignments/member/123/markdown")
+    assert md.status_code == 200
+    assert "**P** (123) — 1 assignments" in md.text
+    assert "Coruscant · Platoon 1 · General Skywalker" in md.text
+
+
+def test_calc_page_and_set(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    r = client.get("/g/G1/calc")
+    assert r.status_code == 200
+    assert "Day 1" in r.text and "Coruscant" in r.text
+    assert "Calculator" in r.text  # shared nav
+    assert "Read-only" in r.text, "anonymous sees the read-only notice"
+    assert "&#34;change&#34;" not in r.text, "no autoescaped hx-trigger"
+    assert 'hx-trigger="change"' not in r.text, "anonymous controls are inert"
+    _login_admin(client)
+    form = {"deploy": "100", "d1-Coruscant": "1", "d1-Coruscant-plats": "6", "d1-Coruscant-cm": "50"}
+    r2 = client.post("/g/G1/calc/set", data=form)
+    assert r2.status_code == 200
+    assert 'name="d1-Coruscant" value="1"' in r2.text and "checked" in r2.text
+    r3 = client.get("/g/G1/calc")
+    assert 'name="d1-Coruscant" value="1"' in r3.text and "checked" in r3.text
+    assert 'hx-trigger="change from:input"' in r3.text, "form carries the hx trigger"
+    assert "&#34;change&#34;" not in r3.text, "hx-trigger must not be autoescaped"
+
+
+def test_calc_optimizer_matches_js_sanity():
+    data_root = Path("data")
+    if not (data_root / "rote" / "t05D.json").exists():
+        pytest.skip("real game data not present")
+    from swgoh_reviewer.calc import build_data
+    from swgoh_reviewer.calc_logic import optimize
+
+    data = build_data(data_root, "NW4t0-dBRcG8n-PVhykpKg")
+
+    def all_est(pct):
+        est = {}
+        for ch in data["chains"]:
+            for p in ch["planets"]:
+                est[p["name"]] = pct
+        for sp in data["specials"]:
+            est[sp["planet"]["name"]] = pct
+        return est
+
+    assert optimize(data, all_est(100), False, False)["stars"] == 47
+    assert optimize(data, all_est(100), True, True)["stars"] == 52
+    assert optimize(data, all_est(50), False, False)["stars"] == 43
+    assert optimize(data, all_est(30), False, False)["stars"] == 41
+
+
+def test_planner_page_and_edit(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _login_admin(client)
+    payload = {"deployPct": 100, "unlockZeffo": False, "unlockMandalore": False, "days": {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}}, "fills": {}}
+    client.post("/g/G1/plans", json={"name": "Week 1", "payload": payload})
+    r = client.get("/g/G1/platoons")
+    assert r.status_code == 200
+    assert "Day 1" in r.text and "General Skywalker" in r.text
+    assert ">Planner<" in r.text  # shared nav
+    assert 'hx-get="/g/G1/platoons/day?d=2"' in r.text, "day tabs carry literal hx-get"
+    assert "&#34;" not in r.text, "no autoescaped attributes"
+    assert client.get("/g/G1/platoons/day", params={"d": 1}).status_code == 200
+    rp = client.get("/g/G1/platoons/picker", params={"planet": "Coruscant", "slot": 0, "day": 1})
+    assert rp.status_code == 200 and "General Skywalker" in rp.text and "P" in rp.text
+    ra = client.post("/g/G1/platoons/assign", data={"planet": "Coruscant", "slot": 0, "day": 1, "ac": "123"})
+    assert ra.status_code == 200 and "cell cur" in ra.text and "P" in ra.text
+    rg = client.post(
+        "/g/G1/platoons/generate",
+        data={"gen-scope": "planet", "gen-planet": "Coruscant", "day": 1, "gen-policy": "full", "gen-strategy": "strongest"},
+    )
+    assert rg.status_code == 200
+    rp2 = client.post("/g/G1/platoons/publish?d=1")
+    assert rp2.status_code == 200
+    assert client.get("/g/G1/plan").json()["plan"] is not None
+
+
+def test_report_views(tmp_path):
+    make_data(tmp_path)
+    (tmp_path / "guilds" / "G1.squads.json").write_text(
+        json.dumps(
+            {
+                "guildId": "G1",
+                "guildName": "Guild One",
+                "generatedAt": "2026-01-01T00:00:00",
+                "bySquad": [
+                    {
+                        "category": "TB",
+                        "squad": "Test squad",
+                        "mode": "minRelic",
+                        "minRelic": 7,
+                        "size": 2,
+                        "poolCount": 0,
+                        "results": [
+                            {
+                                "allyCode": 123,
+                                "name": "P",
+                                "required": [{"name": "GS", "baseId": "GENERALSKYWALKER", "status": "met", "relicLevel": 9, "minRelic": 7}],
+                                "gap": 0,
+                                "complete": True,
+                                "poolChosen": [],
+                                "poolMet": 0,
+                            }
+                        ],
+                    }
+                ],
+                "byPlayer": {},
+            }
+        )
+    )
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    for v in ("matrix", "squads", "players", "needs"):
+        r = client.get("/g/G1/report", params={"view": v})
+        assert r.status_code == 200, v
+        assert ">Report<" in r.text, "nav missing"
+    m = client.get("/g/G1/report/view", params={"view": "matrix"})
+    assert m.status_code == 200
+    assert "cell g" in m.text and "cell na" not in m.text, "matrix cells should be populated, not na"
+
+
+def test_report_empty_without_squads(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    r = client.get("/g/G1/report")
+    assert r.status_code == 200 and "No squad report yet" in r.text
+
+
+def test_calc_optimize_route(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _login_admin(client)
+    r = client.get("/g/G1/calc/optimize")
+    assert r.status_code == 200 and "Plan optimizer" in r.text
+    form = {"mode": "run", "opt-mode": "level", "opt-deploy": "100"}
+    r2 = client.post("/g/G1/calc/optimize", data=form)
+    assert r2.status_code == 200 and "Best plan" in r2.text
+    form2 = {"mode": "apply", "opt-mode": "level", "opt-deploy": "100"}
+    r3 = client.post("/g/G1/calc/optimize", data=form2)
+    assert r3.status_code == 200
 
 
 def test_remove_guild_cleans_plans(tmp_path):
@@ -319,7 +531,7 @@ def test_refresh_guild_does_not_deadlock_on_regen(tmp_path, monkeypatch):
     """refresh_guild calls regen while holding the lock; the lock must be reentrant."""
     import threading
 
-    from swgoh_reviewer import assignments, calc, dashboard, pipeline, platoons, squads
+    from swgoh_reviewer import pipeline, squads
     from server.db import DB as Database
     from server.jobs import JobRunner
 
@@ -333,10 +545,6 @@ def test_refresh_guild_does_not_deadlock_on_regen(tmp_path, monkeypatch):
         lambda **k: ({"guildId": "G1", "guildName": "Guild One", "memberCount": 1, "members": []}, {}),
     )
     monkeypatch.setattr(squads, "main", lambda *a, **k: 0)
-    monkeypatch.setattr(dashboard, "main", lambda *a, **k: 0)
-    monkeypatch.setattr(calc, "main", lambda *a, **k: 0)
-    monkeypatch.setattr(platoons, "main", lambda *a, **k: 0)
-    monkeypatch.setattr(assignments, "main", lambda *a, **k: 0)
     (tmp_path / "rote").mkdir(parents=True)
     (tmp_path / "rote" / "t05D.json").write_text("{}")
 

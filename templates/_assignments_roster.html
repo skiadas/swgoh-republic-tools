@@ -1,0 +1,36 @@
+{% if no_plan %}
+<div class="notice">No plan has been published for this guild yet — an officer should build one in the planner and publish it.</div>
+{% elif not entries %}
+<div class="notice">No members match the search.</div>
+{% else %}
+<table class="rost">
+  <tr><th></th><th>Member</th><th>Total</th>
+    {% for d in range(1, 7) %}<th>D{{ d }}</th>{% endfor %}
+  </tr>
+  {% for r in entries %}
+  <tr class="mrow" data-ac="{{ r.ac }}">
+    <td class="car">{{ "▸" if r.total else "" }}</td>
+    <td class="mname"><b>{{ r.name }}</b> <span class="muted">{{ r.ac }}</span>
+      <button type="button" class="copy-btn" onclick="copyMember('{{ r.ac }}')">copy</button></td>
+    <td class="tot">{{ r.total }}</td>
+    {% for d in range(1, 7) %}
+    <td class="{{ 'c' if r.days.get(d) else 'muted' }}">{{ r.days.get(d, 0) }}</td>
+    {% endfor %}
+  </tr>
+  <tr class="mdet" id="mdet-{{ r.ac }}" style="display:none"><td colspan="8">
+    {% if not r.list %}<span class="muted">No assignments.</span>
+    {% else %}
+      {% for d in r.detail %}
+      <div class="dhead">Day {{ d.day }} <span class="muted">({{ d.count }})</span></div>
+      {% for p in d.planets %}
+      <div class="pline {{ 'over' if p.over }}">
+        <b>{{ p.name }}</b>{% if p.over %}<span class="warn-tag">&gt;10</span>{% endif %}:
+        {% for it in p.assigns %}Platoon {{ it.platoon }} · {{ it.unit }}{% if not loop.last %}; {% endif %}{% endfor %}
+      </div>
+      {% endfor %}
+      {% endfor %}
+    {% endif %}
+  </td></tr>
+  {% endfor %}
+</table>
+{% endif %}

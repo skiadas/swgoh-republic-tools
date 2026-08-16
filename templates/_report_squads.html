@@ -1,0 +1,40 @@
+<div class="sq-select">
+  <label>Squad:
+    <select hx-get="/g/{{ guild_id }}/report/view?view=squads" hx-target="#view" hx-swap="innerHTML"
+      name="squad" hx-trigger="change">
+      {% for s in all_squads %}<option value="{{ loop.index0 }}" {{ 'selected' if loop.index0 == squad }}>{{ s.category }} · {{ s.squad }}</option>{% endfor %}
+    </select>
+  </label>
+</div>
+{% set s = all_squads[squad] %}
+<section class="squad-block">
+  <h3>{{ s.category }} / {{ s.squad }} <span class="muted">({{ R.squad_title(s) }})</span></h3>
+  <table>
+    <thead><tr><th>Player</th><th>{{ 'Common' if s.mode == 'commonRelic' else 'Gap' }}</th>
+      {% for u in s.results[0].required %}<th>{{ u.name }}</th>{% endfor %}
+      <th>Pool</th></tr></thead>
+    <tbody>
+      {% for r in R.squad_rows(s) %}
+      <tr>
+        <td><b>{{ r.name }}</b> <span class="muted">{{ r.allyCode }}</span></td>
+        {% if s.mode == 'commonRelic' %}
+          {% if r.commonRelic is none %}
+            <td><span class="badge b-missing">-</span></td>
+          {% else %}
+            <td><span class="badge {{ 'b-complete' if r.nextThreshold is none else 'b-gap' }}">R{{ r.commonRelic }}</span></td>
+          {% endif %}
+          {% for u in r.required %}
+            <td>{% if u.relicLevel is none %}<span class="badge b-missing">missing</span>{% else %}R{{ u.relicLevel }}{% endif %}</td>
+          {% endfor %}
+        {% else %}
+          <td><span class="badge {{ 'b-complete' if r.complete else 'b-gap' }}">{{ 'ready' if r.complete else r.gap }}</span></td>
+          {% for u in r.required %}
+            <td><span class="badge b-{{ u.status }}">{{ {'met':'✓','upgrade':'▲','missing':'✗'}[u.status] }}</span> {{ 'R' ~ u.relicLevel if u.status != 'missing' else '-' }}</td>
+          {% endfor %}
+        {% endif %}
+        <td>{{ r.poolMet }}/{{ r.poolCount }} met{% if r.poolUpgrade %} +{{ r.poolUpgrade }} up{% endif %}{% if r.poolMissing %} -{{ r.poolMissing }} miss{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>

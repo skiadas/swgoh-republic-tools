@@ -7,7 +7,12 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY swgoh_reviewer swgoh_reviewer
 COPY server server
+COPY templates templates
 COPY squads.json squads.schema.json squads.md ./
+
+# Fetch the pinned htmx build into the served static dir.
+RUN mkdir -p server/static && \
+    curl -fsSL "https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" -o server/static/htmx.min.js
 
 ENV PYTHONUNBUFFERED=1 \
     SWGOH_DATA_ROOT=/var/lib/swgoh-reviewer/data \

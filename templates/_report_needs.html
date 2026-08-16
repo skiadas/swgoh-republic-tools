@@ -1,0 +1,33 @@
+<div class="need-controls">
+  <label>Squad:
+    <select name="squad" hx-get="/g/{{ guild_id }}/report/view?view=needs" hx-trigger="change"
+      hx-include="closest .need-controls" hx-target="#view" hx-swap="innerHTML">
+      {% for s in all_squads %}<option value="{{ loop.index0 }}" {{ 'selected' if loop.index0 == squad }}>{{ s.category }} · {{ s.squad }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Filter players <input name="search" value="{{ search }}"
+    hx-get="/g/{{ guild_id }}/report/view?view=needs" hx-trigger="input changed delay:300ms"
+    hx-include="closest .need-controls" hx-target="#view" hx-swap="innerHTML"></label>
+</div>
+{% set s = all_squads[squad] %}
+{% set n = R.needs_count(s) %}
+<div class="need-title">{{ s.squad }} <span class="status-meta">({{ R.squad_title(s) }}) · {{ n }} player{{ 's' if n != 1 }} need work</span></div>
+{% set q = search|lower %}
+{% set rows = [] %}
+{% for row in R.needs_rows(s) %}
+  {% set kept = [] %}
+  {% for pl in row.players if not q or q in pl.name|lower %}{% set _ = kept.append(pl) %}{% endfor %}
+  {% if kept %}{% set _ = rows.append({'label': row.label, 'players': kept}) %}{% endif %}
+{% endfor %}
+{% if not rows %}
+<div class="notice">No needs{% if search %} match "{{ search }}"{% endif %}.</div>
+{% else %}
+<table class="need-table">
+  <tbody>
+    {% for row in rows %}
+    <tr><td class="need-action">{{ row.label }}</td>
+      <td>{% for pl in row.players %}<span class="pchip" title="{{ pl.title }}">{{ pl.name }} <span class="status-meta">({{ pl.code }})</span></span>{% endfor %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

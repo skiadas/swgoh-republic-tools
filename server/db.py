@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS guild_plans (
     updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_guild_plans_guild ON guild_plans(guild_id);
+CREATE TABLE IF NOT EXISTS guild_drafts (
+    guild_id TEXT PRIMARY KEY,
+    name TEXT,
+    payload TEXT,
+    updated_at TEXT
+);
 """
 
 
@@ -85,9 +91,10 @@ class DB:
         return self._row("SELECT * FROM guilds WHERE id = ?", (guild_id,))
 
     def delete_guild(self, guild_id):
-        """Remove a guild, its plans and job history (discord links are player-level and stay)."""
+        """Remove a guild, its plans, draft and job history (discord links are player-level and stay)."""
         self._exec("DELETE FROM guilds WHERE id = ?", (guild_id,))
         self._exec("DELETE FROM guild_plans WHERE guild_id = ?", (guild_id,))
+        self._exec("DELETE FROM guild_drafts WHERE guild_id = ?", (guild_id,))
         self._exec("DELETE FROM job_log WHERE guild_id = ?", (guild_id,))
 
     def upsert_guild(self, guild_id, name=None, tb_id=None, enabled=None, squads_json=None):
@@ -198,3 +205,16 @@ class DB:
 
     def delete_plan(self, plan_id, guild_id):
         self._exec("DELETE FROM guild_plans WHERE id = ? AND guild_id = ?", (plan_id, guild_id))
+
+    # ---- working draft (the plan being edited, not yet published) ----
+    def get_draft(self, guild_id):
+        return self._row("SELECT * FROM guild_drafts WHERE guild_id = ?", (guild_id,))
+
+    def set_draft(self, guild_id, name, payload):
+        self._exec(
+            "INSERT OR REPLACE INTO guild_drafts (guild_id, name, payload, updated_at) VALUES (?,?,?,?)",
+            (guild_id, name, payload, now_iso()),
+        )
+
+    def clear_draft(self, guild_id):
+        self._exec("DELETE FROM guild_drafts WHERE guild_id = ?", (guild_id,))

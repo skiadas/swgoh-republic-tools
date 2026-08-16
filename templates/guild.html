@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}{{ guild_name }} · Home — SWGOH reviewer{% endblock %}
+{% block page_title %}{{ guild_name }} · Home{% endblock %}
+{% block header_sub %}{{ guild_id }} · last refresh {{ last_refresh or "—" }}{% endblock %}
+
+{% block main %}
+{% if job %}
+<div class="card">Job: <b>{{ job.kind }}</b> · {{ job.status }} · started {{ (job.started_at or "")[:19] }}
+  {% if job.message %}<span class="muted">· {{ job.message[:120] }}</span>{% endif %}
+</div>
+{% endif %}
+
+{% if admin %}
+<div class="card">
+  <a href="/admin/g/{{ guild_id }}">Manage</a>
+  <a href="/admin">Admin</a>
+  <form method="post" action="/admin/guilds/{{ guild_id }}/refresh" style="display:inline">
+    <button>Refresh now</button>
+  </form>
+</div>
+{% endif %}
+
+{% if officer %}
+<div class="card">
+  <h3>Officer settings</h3>
+  <form method="post" action="/g/{{ guild_id }}/squads">
+    <p>Squad definitions (JSON, validated against squads.schema.json):</p>
+    <textarea name="squads" rows="12" cols="80">{{ current_squads }}</textarea><br>
+    <button>Save squad definitions</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

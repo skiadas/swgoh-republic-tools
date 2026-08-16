@@ -1,0 +1,57 @@
+{% set ns = namespace(fills=0) %}
+{% for planet in planets %}{% set ns.fills = ns.fills + planet.platoons|sum(attribute='filled') %}{% endfor %}
+<div class="notice">Day {{ day }}: <b>{{ ns.fills }}</b> assignments.</div>
+
+{% if not planets %}
+<div class="notice">No planets planned for day {{ day }} — set your star goals in the <a href="/g/{{ guild_id }}/calc">calculator</a> first.</div>
+{% endif %}
+
+{% for planet in planets %}
+<section class="planet">
+  <header class="phead">
+    <span class="pname">{{ planet.name }}</span>
+    <span class="meta">relic R{{ planet.relicReq }}
+      {% if planet.starDay %}<b> · star day {{ planet.starDay }}</b>{% else %} · <span class="muted">not planned</span>{% endif %}
+    </span>
+  </header>
+  <div class="planet-body">
+    {% for platoon in planet.platoons %}
+    <div class="platoon">
+      <h4>P{{ platoon.idx }} <b>{{ platoon.filled }}/15</b>
+        {% if platoon.filled >= 15 and planet.starDay and planet.starDay > day %}<span class="early"> ⚠ early</span>
+        {% elif platoon.filled >= 15 %}<span class="maxed"> ✓</span>{% endif %}
+      </h4>
+      {% for cell in platoon.cells %}
+      <div class="cell {{ 'cur' if cell.cur else ('cov' if cell.covered_ac else 'open') }}{{ ' warn' if cell.warnings }}" title="{{ cell.warnings|join('; ') }}">
+        <div class="u">{{ cell.unit }} <span class="n" title="{{ cell.eligible }} eligible">{{ cell.eligible }}</span></div>
+        {% if can_edit %}
+        <button type="button" class="chip{{ ' cur' if cell.cur else (' cov' if cell.covered_ac else '') }}{{ ' warn' if cell.warnings }}"
+          hx-get="/g/{{ guild_id }}/platoons/picker?planet={{ planet.name|urlencode }}&slot={{ cell.slot }}&day={{ day }}"
+          hx-target="#picker" hx-swap="innerHTML" hx-on::after-request="showPicker()"
+          title="{{ 'today' if cell.covered_day == day else ('since day ' ~ cell.covered_day if cell.covered_ac else cell.eligible ~ ' eligible') }}">
+          <span class="lbl">{{ member_names.get(cell.covered_ac, '—') if cell.covered_ac else '—' }}</span><span class="arr">▾</span>
+        </button>
+        {% else %}
+        <div class="chip readonly"><span class="lbl">{{ member_names.get(cell.covered_ac, '—') if cell.covered_ac else '—' }}</span></div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+
+{% set warns = [] %}
+{% for planet in planets %}
+  {% for platoon in planet.platoons %}
+    {% for cell in platoon.cells %}
+      {% if cell.cur and cell.warnings %}{% set _ = warns.append({ 'p': planet.name, 'msg': cell.warnings[0] }) %}{% endif %}
+    {% endfor %}
+  {% endfor %}
+{% endfor %}
+{% if warns %}
+<div class="warnbox"><b>Conflicts on day {{ day }}</b><ul>
+  {% for w in warns %}<li><b>{{ w.p }}</b>: {{ w.msg }}</li>{% endfor %}
+</ul></div>
+{% endif %}

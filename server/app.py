@@ -18,7 +18,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import hmac
-import html
 import json
 import re
 import threading
@@ -27,15 +26,38 @@ from contextlib import asynccontextmanager
 
 import jsonschema
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
+from swgoh_reviewer import assignments_logic, calc, calc_logic, planner, platoons, report_logic
 from swgoh_reviewer.comlink import DEFAULT_COMLINK
 from swgoh_reviewer.config import data_root
 from server import auth
 from server.db import DB
 from server.jobs import JobRunner, refresh_hour
+from server.nav import guild_nav
 
 GUILD_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+SERVER_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SERVER_DIR.parent
+TEMPLATES_DIR = REPO_ROOT / "templates"
+STATIC_DIR = SERVER_DIR / "static"
+
+
+def _fmt(n):
+    v = float(n or 0)
+    a = abs(v)
+    for mul, suf in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if a >= mul:
+            x = v / mul
+            return (f"{x:.1f}".rstrip("0").rstrip(".") if x != int(x) else str(int(x))) + suf
+    return str(int(v))
+
+
+def _pfmt(n):
+    return f"{int(n or 0):,}"
 
 
 def admin_token():
@@ -63,39 +85,6 @@ def require_admin(request: Request):
     if not is_admin(request):
         raise HTTPException(401, "admin session required")
     return True
-
-
-def safe_guild_file(outdir: Path, guild_id: str, suffix: str):
-    if not GUILD_ID_RE.match(guild_id):
-        raise HTTPException(400, "bad guild id")
-    path = (outdir / "guilds" / f"{guild_id}.{suffix}").resolve()
-    root = outdir.resolve()
-    if not str(path).startswith(str(root)) or not path.is_file():
-        raise HTTPException(404, "not found")
-    return path
-
-
-def _esc(s):
-    return html.escape(str(s or ""))
-
-
-def _page(title, body):
-    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{_esc(title)}</title>
-<style>
- body {{ font-family: -apple-system,"Segoe UI",Roboto,sans-serif; margin:0; background:#fafafa; color:#222; }}
- header {{ background:#1c2541; color:#fff; padding:12px 20px; }}
- header h1 {{ margin:0; font-size:18px; }}
- main {{ padding:16px 20px; max-width:900px; margin:0 auto; }}
- .card {{ background:#fff; border:1px solid #ddd; border-radius:8px; padding:10px 14px; margin:10px 0; }}
- .card a {{ margin-right:12px; }}
- table {{ border-collapse:collapse; width:100%; font-size:13px; }}
- th,td {{ border:1px solid #ddd; padding:5px 8px; text-align:left; }}
- th {{ background:#f0f2f5; }}
- input,select {{ padding:3px 6px; }}
- .muted {{ color:#888; }}
-</style></head><body><header><h1>{_esc(title)}</h1></header><main>{body}</main></body></html>"""
 
 
 def create_app(outdir=None, db_path=None, comlink=None):
@@ -130,6 +119,10 @@ def create_app(outdir=None, db_path=None, comlink=None):
     app.state.outdir = outdir
     app.state.runner = runner
     app.state.comlink = comlink
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    templates.env.filters["fmt"] = _fmt
+    templates.env.filters["pfmt"] = _pfmt
 
     def guild_display(g):
         """Display name: DB name, else the manifest's guildName, else the id."""
@@ -210,35 +203,16 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/auth/me", response_class=HTMLResponse)
     def auth_me(request: Request):
         session = session_user(request)
-        if not session:
-            return _page("Not signed in", '<p>Not signed in.</p><p><a href="/auth/login">Sign in with Discord</a></p>')
-        roles = auth.roles_for(db, outdir, session["discord_id"])
-        body = f"<p>Signed in as <b>{_esc(session.get('username'))}</b> (discord id <code>{_esc(session['discord_id'])}</code>).</p>"
-        if roles:
-            body += "<p>Roles: " + ", ".join(f"{_esc(g)}: {r}" for g, r in roles.items()) + "</p>"
-        else:
-            body += '<p>No linked player. Share your discord id above with an admin to link an ally code.</p>'
-        body += '<p><a href="/auth/logout">Sign out</a></p>'
-        return _page("Signed in", body)
+        roles = auth.roles_for(db, outdir, session["discord_id"]) if session else {}
+        return templates.TemplateResponse(request, "auth_me.html", {"session": session, "roles": roles})
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
-        admin = ""
-        if is_admin(request):
-            admin = '<div class="card"><a href="/admin">Admin</a></div>'
-        rows = db.list_guilds()
-        if not rows:
-            body = admin + '<div class="card">No guilds yet.</div>'
-        else:
-            body = admin + "<table><tr><th>Guild</th><th>Last refresh</th><th></th></tr>"
-            for g in rows:
-                body += (
-                    f"<tr><td>{_esc(guild_display(g))}</td>"
-                    f"<td>{_esc((g['last_refresh'] or '—')[:19])}</td>"
-                    f"<td><a href='/g/{g['id']}'>open</a></td></tr>"
-                )
-            body += "</table>"
-        return _page("SWGOH reviewer", body)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"guilds": db.list_guilds(), "admin": is_admin(request)},
+        )
 
     @app.get("/healthz")
     def healthz():
@@ -249,42 +223,24 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}", response_class=HTMLResponse)
     def guild_page(guild_id: str, request: Request):
         g = require_guild(guild_id)
-        links = ""
-        report = outdir / "guilds" / f"{guild_id}.squads.html"
-        calc_file = outdir / "guilds" / f"{guild_id}.calculator.html"
-        platoons_file = outdir / "guilds" / f"{guild_id}.platoons.html"
-        assignments_file = outdir / "guilds" / f"{guild_id}.assignments.html"
-        links += f"<a href='/g/{guild_id}/report'>squad report</a>" if report.is_file() else "squad report (pending)"
-        links += f"<a href='/g/{guild_id}/calc'>ROTE calculator</a>" if calc_file.is_file() else "ROTE calculator (pending)"
-        links += f"<a href='/g/{guild_id}/platoons'>platoon planner</a>" if platoons_file.is_file() else "platoon planner (pending)"
-        links += f"<a href='/g/{guild_id}/assignments'>assignments by member</a>" if assignments_file.is_file() else "assignments by member (pending)"
-        body = f'<div class="card"><b>{_esc(guild_display(g))}</b> · last refresh {_esc((g["last_refresh"] or "—")[:19])}</div>'
         job = db.latest_job(guild_id)
-        if job:
-            body += f'<div class="card">Job: <b>{_esc(job["kind"])}</b> · {_esc(job["status"])} · started {_esc((job["started_at"] or "")[:19])}'
-            if job.get("message"):
-                body += f' · <span class="muted">{_esc(job["message"][:120])}</span>'
-            body += "</div>"
-        body += f'<div class="card">{links}</div>'
-        if is_admin(request):
-            body += f"""
-<div class="card"><a href="/admin/g/{guild_id}">Manage</a> · <a href="/admin">Admin</a>
-<form method="post" action="/admin/guilds/{guild_id}/refresh" style="display:inline"><button>Refresh now</button></form></div>"""
-        # officer controls
         session = session_user(request)
         roles = auth.roles_for(db, outdir, session["discord_id"]) if session else {}
         officer = auth.is_admin_user(session) or auth.is_officer(roles, guild_id)
-        if officer:
-            current_squads = g.get("squads_json") or ""
-            body += f"""
-<div class="card"><h3>Officer settings</h3>
-<form method="post" action="/g/{guild_id}/squads">
-  <p>Squad definitions (JSON, validated against squads.schema.json):</p>
-  <textarea name="squads" rows="12" cols="80">{_esc(current_squads)}</textarea><br>
-  <button>Save squad definitions</button>
-</form>
-</div>"""
-        return _page(f"{guild_display(g)} — SWGOH reviewer", body)
+        return templates.TemplateResponse(
+            request,
+            "guild.html",
+            {
+                "guild_id": guild_id,
+                "guild_name": guild_display(g),
+                "last_refresh": (g["last_refresh"] or "")[:19],
+                "job": job,
+                "admin": is_admin(request),
+                "officer": officer,
+                "current_squads": g.get("squads_json") or "",
+                "nav": guild_nav("Home", guild_id),
+            },
+        )
 
     @app.post("/g/{guild_id}/squads")
     async def set_guild_squads(guild_id: str, request: Request):
@@ -307,25 +263,402 @@ def create_app(outdir=None, db_path=None, comlink=None):
         runner.regen(guild_id, squads_json=data)
         return RedirectResponse(f"/g/{guild_id}", status_code=303)
 
-    @app.get("/g/{guild_id}/report")
-    def guild_report(guild_id: str):
-        require_guild(guild_id)
-        return FileResponse(safe_guild_file(outdir, guild_id, "squads.html"))
+    # ---- squad report (htmx views) ----
+    def report_view_ctx(guild_id, search="", squad=0, player="", sort="name", hide=False):
+        report, members = report_logic.load_report(outdir, guild_id)
+        players, categories = report_logic.prepare(report, members)
+        all_squads = report.get("bySquad", [])
+        return {
+            "guild_id": guild_id,
+            "report": report,
+            "players": players,
+            "categories": categories,
+            "all_squads": all_squads,
+            "R": report_logic,
+            "search": search,
+            "sort": sort,
+            "hide": hide,
+            "squad": max(0, min(squad, len(all_squads) - 1)),
+            "player": player,
+        }
 
-    @app.get("/g/{guild_id}/calc")
-    def guild_calc(guild_id: str):
+    @app.get("/g/{guild_id}/report", response_class=HTMLResponse)
+    def guild_report(guild_id: str, request: Request, view: str = "matrix"):
         require_guild(guild_id)
-        return FileResponse(safe_guild_file(outdir, guild_id, "calculator.html"))
+        ctx = report_view_ctx(guild_id)
+        ctx["guild_name"] = ctx["report"].get("guildName", guild_id)
+        ctx["nav"] = guild_nav("Report", guild_id)
+        ctx["view"] = view if view in ("matrix", "squads", "players", "needs") else "matrix"
+        return templates.TemplateResponse(request, "report.html", ctx)
 
-    @app.get("/g/{guild_id}/platoons")
-    def guild_platoons(guild_id: str):
+    @app.get("/g/{guild_id}/report/view", response_class=HTMLResponse)
+    def report_view(
+        guild_id: str,
+        request: Request,
+        view: str = "matrix",
+        squad: int = 0,
+        player: str = "",
+        search: str = "",
+        sort: str = "name",
+        hide: bool = False,
+    ):
         require_guild(guild_id)
-        return FileResponse(safe_guild_file(outdir, guild_id, "platoons.html"))
+        view = view if view in ("matrix", "squads", "players", "needs") else "matrix"
+        ctx = report_view_ctx(guild_id, search=search, squad=squad, player=player, sort=sort, hide=hide)
+        if view == "matrix":
+            ctx["players"] = report_logic.filter_players(ctx["players"], ctx["all_squads"], search, hide, sort)
+        return templates.TemplateResponse(request, f"_report_{view}.html", ctx)
 
-    @app.get("/g/{guild_id}/assignments")
-    def guild_assignments(guild_id: str):
+    # ---- ROTE star calculator ----
+    def calc_view(guild_id):
+        data = calc.build_data(outdir, guild_id)
+        draft = db.get_draft(guild_id)
+        current = db.get_current_plan(guild_id)
+        working = draft or current
+        payload = json.loads(working["payload"]) if working else {}
+        days_state = payload.get("days") or {}
+        deploy = int(payload.get("deployPct") or 100)
+        unlock_zeffo = bool(payload.get("unlockZeffo"))
+        unlock_mandalore = bool(payload.get("unlockMandalore"))
+        days = calc_logic.compute(data, days_state, deploy, unlock_zeffo, unlock_mandalore)
+        return data, days, days_state, deploy, unlock_zeffo, unlock_mandalore
+
+    def calc_body_context(guild_id, data, days, deploy, unlock_zeffo, unlock_mandalore, can_edit=False, compact=False):
+        last = days[-1] if days else None
+        return {
+            "guild_id": guild_id,
+            "can_edit": can_edit,
+            "days": days,
+            "deploy": deploy,
+            "unlock_zeffo": unlock_zeffo,
+            "unlock_mandalore": unlock_mandalore,
+            "compact": compact,
+            "guild_gp": data.get("guildGp", 0),
+            "total_stars": last["totalStars"] if last else 0,
+            "cs": last["chainStars"] if last else {},
+        }
+
+    @app.get("/g/{guild_id}/calc", response_class=HTMLResponse)
+    def guild_calc(guild_id: str, request: Request):
         require_guild(guild_id)
-        return FileResponse(safe_guild_file(outdir, guild_id, "assignments.html"))
+        data, days, _state, deploy, uz, um = calc_view(guild_id)
+        ctx = calc_body_context(guild_id, data, days, deploy, uz, um, can_edit=is_admin(request))
+        ctx["guild_name"] = data["guildName"]
+        ctx["nav"] = guild_nav("Calculator", guild_id)
+        return templates.TemplateResponse(request, "calc.html", ctx)
+
+    @app.post("/g/{guild_id}/calc/set", response_class=HTMLResponse)
+    async def calc_set(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        form = await request.form()
+        days = {}
+        for key in form.keys():
+            if not key.startswith("d"):
+                continue
+            base, field = key, "goal"
+            if base.endswith("-plats"):
+                base, field = base[:-6], "platoons"
+            elif base.endswith("-cm"):
+                base, field = base[:-3], "cmPct"
+            m = re.match(r"^d(\d)-(.+)$", base)
+            if not m:
+                continue
+            day, planet = int(m.group(1)), m.group(2)
+            days.setdefault(day, {}).setdefault(planet, {})
+            v = form.get(key)
+            days[day][planet][field] = str(v) if field == "goal" else int(v or 0)
+        deploy = int(form.get("deploy") or 100)
+        unlock_zeffo = "unlock-zeffo" in form
+        unlock_mandalore = "unlock-mandalore" in form
+        compact = "compact" in form
+        data = calc.build_data(outdir, guild_id)
+        working = db.get_draft(guild_id) or db.get_current_plan(guild_id)
+        old = json.loads(working["payload"]) if working else {}
+        payload = {
+            "deployPct": deploy,
+            "unlockZeffo": unlock_zeffo,
+            "unlockMandalore": unlock_mandalore,
+            "days": days,
+            "fills": old.get("fills") or {},
+        }
+        db.set_draft(guild_id, (working or {}).get("name") or "Draft", json.dumps(payload))
+        computed = calc_logic.compute(data, days, deploy, unlock_zeffo, unlock_mandalore)
+        ctx = calc_body_context(guild_id, data, computed, deploy, unlock_zeffo, unlock_mandalore, can_edit=True, compact=compact)
+        return templates.TemplateResponse(request, "_calc_body.html", ctx)
+
+    @app.get("/g/{guild_id}/calc/optimize", response_class=HTMLResponse)
+    def calc_optimize_form(guild_id: str, request: Request):
+        require_guild(guild_id)
+        data, _days, _state, deploy, unlock_zeffo, unlock_mandalore = calc_view(guild_id)
+        return templates.TemplateResponse(
+            request,
+            "_calc_optimize.html",
+            {
+                "guild_id": guild_id,
+                "groups": calc_logic.phase_groups(data),
+                "defaults": calc_logic.LEVEL_EST_DEFAULT,
+                "deploy": deploy,
+                "unlock_zeffo": unlock_zeffo,
+                "unlock_mandalore": unlock_mandalore,
+            },
+        )
+
+    @app.post("/g/{guild_id}/calc/optimize", response_class=HTMLResponse)
+    async def calc_optimize(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        form = await request.form()
+        mode = str(form.get("mode") or "run")
+        opt_mode = str(form.get("opt-mode") or "level")
+        deploy = int(form.get("opt-deploy") or 100)
+        unlock_zeffo = "opt-unlock-zeffo" in form
+        unlock_mandalore = "opt-unlock-mandalore" in form
+        data = calc.build_data(outdir, guild_id)
+        est = {}
+        plat_cap = {}
+        for g in calc_logic.phase_groups(data):
+            ph = g["phase"]
+            plat_cap[ph] = int(form.get(f"plats-{ph}") or 6)
+            for p in g["planets"]:
+                if opt_mode == "planet":
+                    est[p["name"]] = int(form.get(f"est-planet-{p['name']}") or 100)
+                else:
+                    est[p["name"]] = int(form.get(f"est-level-{ph}") or 100)
+        res = calc_logic.optimize(data, est, unlock_zeffo, unlock_mandalore, deploy, plat_cap)
+        if mode == "run":
+            return templates.TemplateResponse(request, "_calc_optimize_result.html", {"guild_id": guild_id, "res": res})
+        days = {}
+        for day_rec in res["days"]:
+            days[day_rec["day"]] = {
+                nm: {"goal": str(a["goal"]), "platoons": a["plats"], "cmPct": a["cmPct"]}
+                for nm, a in day_rec["acts"].items()
+            }
+        working = db.get_draft(guild_id) or db.get_current_plan(guild_id)
+        old = json.loads(working["payload"]) if working else {}
+        payload = {"deployPct": deploy, "unlockZeffo": unlock_zeffo, "unlockMandalore": unlock_mandalore, "days": days, "fills": old.get("fills") or {}}
+        db.set_draft(guild_id, (working or {}).get("name") or "Draft", json.dumps(payload))
+        computed = calc_logic.compute(data, days, deploy, unlock_zeffo, unlock_mandalore)
+        ctx = calc_body_context(guild_id, data, computed, deploy, unlock_zeffo, unlock_mandalore, can_edit=True)
+        return templates.TemplateResponse(request, "_calc_body.html", ctx)
+
+    # ---- ROTE platoon planner (htmx) ----
+    _planner_cache = {}
+
+    def planner_data(guild_id):
+        stamp = tuple(
+            (str(p), p.stat().st_mtime_ns) if p.exists() else ("", 0)
+            for p in (outdir / "rote" / "t05D.json", outdir / "guilds" / f"{guild_id}.summary.json", outdir / "game" / "units.json")
+        )
+        hit = _planner_cache.get(guild_id)
+        if hit and hit[0] == stamp:
+            return hit[1]
+        data = platoons.build_data(outdir, guild_id)
+        _planner_cache[guild_id] = (stamp, data)
+        return data
+
+    def planner_view(guild_id):
+        data = planner_data(guild_id)
+        draft = db.get_draft(guild_id)
+        current = db.get_current_plan(guild_id)
+        working = draft or current
+        payload = json.loads(working["payload"]) if working else {}
+        return data, payload.get("days") or {}, payload.get("fills") or {}, (working or {}).get("name"), draft is not None
+
+    def planner_day_ctx(guild_id, days_state, fills, d, can_edit):
+        data = planner_data(guild_id)
+        active = planner.active_planets(days_state, fills, data["planets"], d)
+        models = [planner.planet_render_model(p, data["members"], fills, days_state, d) for p in active]
+        names = {str(m["ac"]): m["name"] for m in data["members"]}
+        return {
+            "guild_id": guild_id,
+            "day": d,
+            "planets": models,
+            "member_names": names,
+            "can_edit": can_edit,
+        }
+
+    def save_draft(guild_id, days_state, fills):
+        working = db.get_draft(guild_id) or db.get_current_plan(guild_id)
+        old = json.loads(working["payload"]) if working else {}
+        payload = {
+            "deployPct": old.get("deployPct", 100),
+            "unlockZeffo": old.get("unlockZeffo", False),
+            "unlockMandalore": old.get("unlockMandalore", False),
+            "days": days_state,
+            "fills": fills,
+        }
+        db.set_draft(guild_id, (working or {}).get("name") or "Draft", json.dumps(payload))
+
+    @app.get("/g/{guild_id}/platoons", response_class=HTMLResponse)
+    def guild_platoons(guild_id: str, request: Request, day: int = 1):
+        require_guild(guild_id)
+        data, days_state, fills, plan_name, is_draft = planner_view(guild_id)
+        d = max(1, min(6, day))
+        ctx = planner_day_ctx(guild_id, days_state, fills, d, is_admin(request))
+        ctx["guild_name"] = data["guildName"]
+        ctx["nav"] = guild_nav("Planner", guild_id)
+        ctx["plan_name"] = plan_name
+        ctx["is_draft"] = is_draft
+        return templates.TemplateResponse(request, "planner.html", ctx)
+
+    @app.get("/g/{guild_id}/platoons/day", response_class=HTMLResponse)
+    def platoons_day(guild_id: str, request: Request, d: int = 1):
+        require_guild(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id)
+        ctx = planner_day_ctx(guild_id, days_state, fills, max(1, min(6, d)), is_admin(request))
+        return templates.TemplateResponse(request, "_platoons_day.html", ctx)
+
+    @app.get("/g/{guild_id}/platoons/picker", response_class=HTMLResponse)
+    def platoons_picker(guild_id: str, request: Request, planet: str = "", slot: int = 0, day: int = 1):
+        require_guild(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id)
+        p = next((x for x in data["planets"] if x["name"] == planet), None)
+        if p is None:
+            raise HTTPException(404, "no such planet")
+        slot = max(0, min(89, slot))
+        elig = planner.eligible_for_slot(p, data["members"], slot)
+        by_day = (fills.get(planet, {}).get(day) or fills.get(planet, {}).get(str(day)) or {})
+        cur = by_day.get(str(slot))
+        sl = planner.unit_at(p, slot)
+        for m in elig:
+            dims = []
+            if planner.unit_assigned_on_day(fills, planner.planets_map(data["planets"]), m["ac"], sl["b"], day, planet, slot):
+                dims.append("already places this unit elsewhere today")
+            cnt = planner.count_on_planet_day(fills, planet, day, m["ac"]) + (0 if cur == m["ac"] else 1)
+            if cnt > planner.MAX_UNITS:
+                dims.append(f"already has {cnt - 1} fills on {planet} today (max {planner.MAX_UNITS})")
+            m["dim"] = bool(dims)
+            m["dim_title"] = "; ".join(dims)
+        return templates.TemplateResponse(
+            request,
+            "_picker.html",
+            {"guild_id": guild_id, "planet": planet, "slot": slot, "day": day, "unit": sl["n"], "members": elig, "cur": cur},
+        )
+
+    @app.get("/g/{guild_id}/platoons/gen", response_class=HTMLResponse)
+    def platoons_gen(guild_id: str, request: Request, d: int = 1):
+        require_guild(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id)
+        names = [p["name"] for p in planner.active_planets(days_state, fills, data["planets"], max(1, min(6, d)))]
+        return templates.TemplateResponse(request, "_gen.html", {"guild_id": guild_id, "day": d, "planet_names": names})
+
+    @app.post("/g/{guild_id}/platoons/assign", response_class=HTMLResponse)
+    async def platoons_assign(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        form = await request.form()
+        planet = str(form.get("planet") or "")
+        slot = int(form.get("slot") or 0)
+        day = int(form.get("day") or 1)
+        ac = str(form.get("ac") or "")
+        data, days_state, fills, _n, _d = planner_view(guild_id)
+        new_fills = {p: {dd: dict(s) for dd, s in by.items()} for p, by in fills.items()}
+        by_day = new_fills.setdefault(planet, {})
+        slots = by_day.setdefault(str(day), {})
+        if not ac:
+            slots.pop(str(slot), None)
+            if not slots:
+                by_day.pop(str(day), None)
+        else:
+            slots[str(slot)] = ac
+        save_draft(guild_id, days_state, new_fills)
+        ctx = planner_day_ctx(guild_id, days_state, new_fills, day, True)
+        return templates.TemplateResponse(request, "_platoons_day.html", ctx)
+
+    @app.post("/g/{guild_id}/platoons/generate", response_class=HTMLResponse)
+    async def platoons_generate(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        form = await request.form()
+        scope_mode = str(form.get("gen-scope") or "all")
+        planet = str(form.get("gen-planet") or "")
+        strategy = str(form.get("gen-strategy") or "strongest")
+        policy = str(form.get("gen-policy") or "plan")
+        day = max(1, min(6, int(form.get("day") or 1)))
+        data, days_state, fills, _n, _d = planner_view(guild_id)
+        if scope_mode == "planet" and planet:
+            scope = {"mode": "planet", "day": day, "planet": planet}
+        elif scope_mode == "day":
+            scope = {"mode": "day", "day": day}
+        else:
+            scope = None
+        new_fills, _added = planner.generate(data["planets"], data["members"], fills, days_state, scope, strategy, policy)
+        save_draft(guild_id, days_state, new_fills)
+        ctx = planner_day_ctx(guild_id, days_state, new_fills, day, True)
+        return templates.TemplateResponse(request, "_platoons_day.html", ctx)
+
+    @app.post("/g/{guild_id}/platoons/clear", response_class=HTMLResponse)
+    def platoons_clear(guild_id: str, request: Request, d: int = 1, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        data, days_state, _fills, _n, _d = planner_view(guild_id)
+        save_draft(guild_id, days_state, {})
+        ctx = planner_day_ctx(guild_id, days_state, {}, max(1, min(6, d)), True)
+        return templates.TemplateResponse(request, "_platoons_day.html", ctx)
+
+    @app.post("/g/{guild_id}/platoons/publish", response_class=HTMLResponse)
+    def platoons_publish(guild_id: str, request: Request, d: int = 1, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        draft = db.get_draft(guild_id)
+        if draft is None:
+            raise HTTPException(400, "no draft to publish")
+        plan_id = db.create_plan(guild_id, draft["name"] or "Guild plan", draft["payload"], owner_name="admin")
+        db.set_current_plan(guild_id, plan_id)
+        db.clear_draft(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id)
+        ctx = planner_day_ctx(guild_id, days_state, fills, max(1, min(6, d)), True)
+        return templates.TemplateResponse(request, "_platoons_day.html", ctx)
+
+    # ---- assignments by member ----
+    def assignments_view(guild_id):
+        data = platoons.build_data(outdir, guild_id, light=True)
+        row = db.get_current_plan(guild_id)
+        payload = json.loads(row["payload"]) if row else {}
+        entries = assignments_logic.build_roster(data["planets"], data["members"], payload.get("fills") or {})
+        assigned = sum(1 for r in entries if r["total"])
+        total = sum(r["total"] for r in entries)
+        summary_line = f"{assigned} of {len(entries)} members assigned · {total} fills"
+        plan_line = ""
+        if row:
+            at = (row["updated_at"] or "")[:16].replace("T", " ")
+            plan_line = f"Guild plan “{row['name']}” · updated by {row['owner_name'] or 'admin'}" + (f" · {at}" if at else "")
+        return data, entries, summary_line, plan_line, row is None
+
+    @app.get("/g/{guild_id}/assignments", response_class=HTMLResponse)
+    def guild_assignments(guild_id: str, request: Request):
+        require_guild(guild_id)
+        data, entries, summary_line, plan_line, no_plan = assignments_view(guild_id)
+        return templates.TemplateResponse(
+            request,
+            "assignments.html",
+            {
+                "guild_id": guild_id,
+                "guild_name": data["guildName"],
+                "nav": guild_nav("Assignments", guild_id),
+                "entries": entries,
+                "no_plan": no_plan,
+                "summary_line": summary_line,
+                "plan_line": plan_line,
+            },
+        )
+
+    @app.get("/g/{guild_id}/assignments/roster", response_class=HTMLResponse)
+    def assignments_roster(guild_id: str, request: Request, search: str = Query(default="")):
+        require_guild(guild_id)
+        data, entries, _s, _p, no_plan = assignments_view(guild_id)
+        q = (search or "").strip().lower()
+        if q:
+            entries = [r for r in entries if q in r["name"].lower() or q in str(r["ac"])]
+        return templates.TemplateResponse(
+            request,
+            "_assignments_roster.html",
+            {"guild_id": guild_id, "entries": entries, "no_plan": no_plan},
+        )
+
+    @app.get("/g/{guild_id}/assignments/member/{allycode}/markdown")
+    def assignments_markdown(guild_id: str, allycode: int):
+        require_guild(guild_id)
+        data, entries, _s, _p, _n = assignments_view(guild_id)
+        entry = next((r for r in entries if str(r["ac"]) == str(allycode)), None)
+        if entry is None:
+            raise HTTPException(404, "no such member")
+        return Response(content=assignments_logic.member_markdown(entry), media_type="text/plain; charset=utf-8")
 
     # ---- guild plans (server-side shared plans) ----
 
@@ -399,13 +732,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     def admin_login_page(request: Request):
         if is_admin(request):
             return RedirectResponse("/admin", status_code=302)
-        body = (
-            "<p>Enter the admin token (set via SWGOH_ADMIN_TOKEN). Your session lasts 24h.</p>"
-            '<form method="post" action="/admin/login">'
-            '<label>Token: <input type="password" name="token" autofocus autocomplete="current-password"></label> '
-            "<button>Sign in</button></form>"
-        )
-        return _page("Admin login — SWGOH reviewer", body)
+        return templates.TemplateResponse(request, "admin_login.html", {})
 
     @app.post("/admin/login")
     async def admin_login(request: Request):
@@ -437,35 +764,11 @@ def create_app(outdir=None, db_path=None, comlink=None):
     def admin_page(request: Request):
         if not is_admin(request):
             return RedirectResponse("/admin/login", status_code=302)
-        rows = "".join(
-            f"<tr><td>{_esc(guild_display(g))} <span class='muted'>({_esc(g['id'])})</span></td>"
-            f"<td>{_esc((g['last_refresh'] or '—')[:19])}</td>"
-            f"<td><a href='/admin/g/{g['id']}'>manage</a></td></tr>"
-            for g in db.list_guilds()
+        return templates.TemplateResponse(
+            request,
+            "admin.html",
+            {"guilds": db.list_guilds(), "links": db.list_discord_links()},
         )
-        links = "".join(
-            f"<tr><td>{_esc(l['discord_id'])}</td><td>{_esc(l['allycode'] or '')}</td><td>{_esc(l['linked_by'] or '')}</td></tr>"
-            for l in db.list_discord_links()
-        )
-        body = """
-<h2>Register a guild</h2>
-<form method="post" action="/admin/guilds">
-  <input name="guild_id" placeholder="guild id (optional if ally code)">
-  <input name="allycode" placeholder="member ally code">
-  <button>Register + refresh</button>
-</form>
-<h2>Link a Discord user to a player</h2>
-<form method="post" action="/admin/links">
-  <input name="discord_id" placeholder="discord user id" required>
-  <input name="allycode" placeholder="ally code" required>
-  <button>Create link</button>
-</form>
-<h2>Guilds</h2>
-<table><tr><th>id</th><th>name</th><th>last refresh</th><th></th></tr>""" + rows + "</table>"
-        if links:
-            body += "<h2>Discord links</h2><table><tr><th>discord id</th><th>allycode</th><th>linked by</th></tr>" + links + "</table>"
-        body += '<p><a href="/admin/logout">Sign out</a></p>'
-        return _page("Admin — SWGOH reviewer", body)
 
     @app.post("/admin/links")
     def create_link(discord_id: str = Form(default=""), allycode: str = Form(default=""), _ok: bool = Depends(require_admin)):
@@ -479,37 +782,16 @@ def create_app(outdir=None, db_path=None, comlink=None):
         if not is_admin(request):
             return RedirectResponse("/admin/login", status_code=302)
         g = require_guild(guild_id)
-        report = outdir / "guilds" / f"{guild_id}.squads.html"
-        calc_file = outdir / "guilds" / f"{guild_id}.calculator.html"
-        platoons_file = outdir / "guilds" / f"{guild_id}.platoons.html"
-        assignments_file = outdir / "guilds" / f"{guild_id}.assignments.html"
-        links = f"<a href='/g/{guild_id}/report'>report</a>" if report.is_file() else "report (pending)"
-        links += f" <a href='/g/{guild_id}/calc'>calc</a>" if calc_file.is_file() else " calc (pending)"
-        links += f" <a href='/g/{guild_id}/platoons'>platoons</a>" if platoons_file.is_file() else " platoons (pending)"
-        links += f" <a href='/g/{guild_id}/assignments'>assignments</a>" if assignments_file.is_file() else " assignments (pending)"
-        job = db.latest_job(guild_id)
-        jobline = ""
-        if job:
-            jobline = f'<div class="card">Job: <b>{_esc(job["kind"])}</b> · {_esc(job["status"])} · started {_esc((job["started_at"] or "")[:19])}'
-            if job.get("message"):
-                jobline += f' · <span class="muted">{_esc(job["message"][:120])}</span>'
-            jobline += "</div>"
-        body = f"""
-<div class="card"><a href="/admin">&larr; Admin</a> · <a href="/g/{guild_id}">View public page</a></div>
-<div class="card"><b>{_esc(guild_display(g))}</b> <span class="muted">({_esc(g['id'])})</span><br>
-  last refresh {_esc((g['last_refresh'] or '—')[:19])}
-  <br>{links}</div>
-{jobline}
-<form method="post" action="/admin/guilds/{guild_id}/refresh"><button>Refresh now (fetch from EA)</button></form>
-<form method="post" action="/admin/guilds/{guild_id}/regen"><button>Regenerate pages (from cache)</button></form>
-<div class="card">
-  <form method="post" action="/admin/guilds/{guild_id}/remove">
-    <label><input type="checkbox" name="confirm" value="1" required> Remove this guild and its data</label>
-    <button>Remove guild</button>
-  </form>
-</div>
-"""
-        return _page(f"{guild_display(g)} — SWGOH reviewer", body)
+        return templates.TemplateResponse(
+            request,
+            "admin_guild.html",
+            {
+                "guild_id": guild_id,
+                "guild_name": guild_display(g),
+                "last_refresh": g["last_refresh"],
+                "job": db.latest_job(guild_id),
+            },
+        )
 
     @app.post("/admin/guilds")
     def register_guild(

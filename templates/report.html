@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}{{ guild_name }} · Squad report{% endblock %}
+{% block page_title %}{{ guild_name }} · Squad report{% endblock %}
+{% block header_sub %}{{ guild_id }} · generated {{ report.generatedAt }}{% endblock %}
+
+{% block page_css %}
+  .vtabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .vtabs button { padding: 6px 14px; border: 1px solid #c9d2e3; border-radius: 6px; background: #fff; cursor: pointer; font-weight: 700; font-size: 13px; }
+  .vtabs button.active { background: #1c2541; color: #fff; border-color: #1c2541; }
+  table th.cat-head { background: #e4e8f0; text-align: center; }
+  .cell.na { color: #bbb; text-align: center; }
+  .cell.g0 { background: #dcedc8; text-align: center; }
+  .cell.g1 { background: #ffe0b2; text-align: center; }
+  .cell.g2 { background: #ffcc80; text-align: center; }
+  .cell.g3 { background: #ffcdd2; text-align: center; }
+  .cell.cr0 { background: #dcedc8; text-align: center; }
+  .cell.cr1 { background: #e8f0d9; text-align: center; }
+  .cell.cr2 { background: #f0eccb; text-align: center; }
+  .cell.cr3 { background: #ffe0b2; text-align: center; }
+  .cell.cr4 { background: #ffcc80; text-align: center; }
+  .cell.cr5 { background: #ffb74d; text-align: center; }
+  .cell.cr6 { background: #ffcdd2; text-align: center; }
+  .cell.cr7 { background: #ef9a9a; text-align: center; }
+  .cell.cr8 { background: #e57373; text-align: center; }
+  .cell.cr-none { background: #ffcdd2; text-align: center; color: #b71c1c; }
+  .cell-sub { font-size: 9px; color: #555; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+  .b-complete { background: #dcedc8; color: #2e7d32; }
+  .b-gap { background: #ffe0b2; color: #b26a00; }
+  .b-missing { background: #ffcdd2; color: #b71c1c; }
+  .chip { display: inline-block; border: 1px solid #ddd; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin: 1px; }
+  .chip-met { background: #eef8ee; }
+  .chip-upgrade { background: #fff3e0; color: #b26a00; }
+  .chip-missing { background: #fdecea; color: #b71c1c; }
+  .row-ready { background: #f6fbf2; }
+  .row-progress { background: #fffaf2; }
+  .row-none { background: #fdf3f3; }
+  .pchip { display: inline-block; border: 1px solid #ddd; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin: 1px; background: #fff; }
+  .sq-select { margin-bottom: 10px; }
+  .m-controls { margin-bottom: 10px; }
+  .m-controls input[type=text] { width: 200px; }
+  .need-title { font-weight: 700; margin: 10px 0 4px; }
+  .status-meta { color: #666; font-size: 11px; }
+  .muted { color: #888; }
+{% endblock %}
+
+{% block main %}
+{% if not report.bySquad %}
+<div class="notice">No squad report yet — an officer needs to run the squad report (or regenerate pages).</div>
+{% else %}
+<nav class="vtabs">
+  {% for v in ['matrix', 'squads', 'players', 'needs'] %}
+  <button class="{{ 'active' if v == view }}" hx-get="/g/{{ guild_id }}/report/view?view={{ v }}" hx-target="#view" hx-swap="innerHTML">{{ v|capitalize }}</button>
+  {% endfor %}
+</nav>
+<div id="view">
+  {% include "_report_" ~ view ~ ".html" %}
+</div>
+{% endif %}
+{% endblock %}

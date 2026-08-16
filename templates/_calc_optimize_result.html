@@ -1,0 +1,12 @@
+{% if res.unmet %}<div class="opt-warn">&#9888; Cannot max: {{ res.unmet|join(', ') }} at these estimates / deploy.</div>{% endif %}
+<div class="opt-line"><b>Best plan: {{ res.stars }} stars</b> &nbsp;·&nbsp; Light {{ res.cs.light }} · Dark {{ res.cs.dark }} ·
+  Neutral {{ res.cs.neutral }} · Zeffo {{ res.cs.zeffo }} · Mandalore {{ res.cs.mandalore }}</div>
+{% for d in res.days %}
+<div class="dayline">Day {{ d.day }}: {% for nm, a in d.acts.items() %}{{ nm }}
+  {% if a.goal >= 1 %}{% if a.special %}&#9733;{% else %}{% for _ in range(a.goal) %}&#9733;{% endfor %}{% endif %}{% else %}<span class="muted">preload</span>{% endif %}
+  {% if not loop.last %} &middot; {% endif %}{% endfor %}</div>
+{% endfor %}
+<div class="mfoot">
+  <button hx-post="/g/{{ guild_id }}/calc/optimize" hx-include="closest .modal" hx-target="#calc" hx-swap="innerHTML"
+    hx-vals='{"mode":"apply"}' hx-on::after-request="hideOpt()">Apply plan</button>
+</div>

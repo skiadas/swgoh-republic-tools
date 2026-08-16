@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Job runner: regenerate reports/calculator from cache, or refresh a guild.
+"""Job runner: regenerate reports/planner from cache, or refresh a guild.
 
 Wraps the CLI mains (via argv) and pipeline.refresh_guild so the web layer
 drives the same code the CLI does. All jobs are serialized by a lock so a
@@ -12,7 +12,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from swgoh_reviewer import assignments, calc, dashboard, pipeline, platoons, squads, tb
+from swgoh_reviewer import pipeline, squads, tb
 from swgoh_reviewer.config import data_root
 from swgoh_reviewer.io import atomic_write_text
 
@@ -74,7 +74,7 @@ class JobRunner:
 
     # ---- jobs ----
     def regen(self, guild_id, squads_json=None):
-        """Regenerate squad report + dashboard + calculator + planner from existing caches (no EA calls)."""
+        """Regenerate the squad report data from existing caches (no EA calls)."""
         tb_id = TB_ID
         with self._lock:
             start = datetime.now(timezone.utc).isoformat()
@@ -85,30 +85,15 @@ class JobRunner:
                     args += ["--squads", str(sq)]
                 if squads.main(args) not in (0, None):
                     raise JobError("squad_report failed")
-                if dashboard.main([guild_id, "--outdir", str(self.outdir)]) not in (0, None):
-                    raise JobError("render_report failed")
-                # The ROTE calculator needs the TB doc, which is built from the
-                # cached static gamedata; a missing doc (or failed build) skips
-                # the calculator without failing the report/refresh.
+                # Ensure the ROTE TB doc is built from the cached static gamedata
+                # (the calculator and planner are server-rendered and read it
+                # per request; a missing doc is not fatal to the report/refresh).
                 rote_path = self.outdir / "rote" / f"{tb_id}.json"
                 if not rote_path.exists():
                     try:
                         tb.main([tb_id, "--outdir", str(self.outdir)])
-                    except Exception as exc:  # noqa: BLE001 - calc is optional
-                        print(f"[regen] TB doc unavailable; calculator skipped: {exc}", flush=True)
-                if rote_path.exists():
-                    if calc.main([guild_id, "--outdir", str(self.outdir), "--tb", tb_id]) not in (0, None):
-                        raise JobError("rote_calc failed")
-                    # The platoon planner is built from the same TB doc + guild
-                    # summary; it is non-fatal (the refresh still succeeds).
-                    if platoons.main([guild_id, "--outdir", str(self.outdir)]) not in (0, None):
-                        print("[regen] platoon planner failed; skipped", flush=True)
-                    # The assignments-by-member roster is read-only and light;
-                    # non-fatal like the planner.
-                    if assignments.main([guild_id, "--outdir", str(self.outdir)]) not in (0, None):
-                        print("[regen] assignments page failed; skipped", flush=True)
-                else:
-                    print("[regen] ROTE calculator skipped (TB doc unavailable)", flush=True)
+                    except Exception as exc:  # noqa: BLE001 - optional
+                        print(f"[regen] TB doc unavailable: {exc}", flush=True)
                 self.db.log_job(guild_id, "regen", "ok", started_at=start)
                 return {"guildId": guild_id, "status": "ok", "kind": "regen"}
             except Exception as exc:  # noqa: BLE001 - report as job failure

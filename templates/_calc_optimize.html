@@ -1,0 +1,59 @@
+<div class="modal wide">
+  <header class="mhead"><h2>Plan optimizer</h2><button onclick="hideOpt()">&#215;</button></header>
+  <div class="mbody">
+    <div class="opt-mode">
+      <label><input type="radio" name="opt-mode" value="level" checked onchange="optToggleMode(this.value); optSaveMode(this.value)"> By level</label>
+      <label><input type="radio" name="opt-mode" value="planet" onchange="optToggleMode(this.value); optSaveMode(this.value)"> By planet</label>
+    </div>
+    <div id="opt-level">
+      {% for g in groups %}
+      <div class="est-row">
+        <span class="nm">Phase {{ g.phase }} &middot; R{{ g.relic }}</span>
+        <input type="range" min="0" max="100" step="1" name="est-level-{{ g.phase }}" value="{{ defaults[g.phase] }}"
+          data-default="{{ defaults[g.phase] }}" oninput="optSaveEstLevel('{{ g.phase }}', this); this.nextElementSibling.textContent=this.value+'%'">
+        <span class="pv">{{ defaults[g.phase] }}%</span>
+        <select name="plats-{{ g.phase }}" title="Platoons expected per planet in this phase (filled on the day it is starred)"
+          onchange="optSavePlats('{{ g.phase }}', this.value)">
+          {% for n in range(0, 7) %}<option value="{{ n }}" {{ 'selected' if n == 6 }}>P{{ n }}</option>{% endfor %}
+        </select>
+        <span class="planets">{% for p in g.planets %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div id="opt-planet" style="display:none">
+      {% for g in groups %}
+      <div class="est-group"><div class="est-phase">Phase {{ g.phase }} &middot; R{{ g.relic }}
+        <select name="plats-{{ g.phase }}" title="Platoons expected per planet in this phase"
+          onchange="optSavePlats('{{ g.phase }}', this.value)">
+          {% for n in range(0, 7) %}<option value="{{ n }}" {{ 'selected' if n == 6 }}>P{{ n }}</option>{% endfor %}
+        </select></div>
+        {% for p in g.planets %}
+        <div class="est-planet"><span>{{ p.name }}</span>
+          <input type="range" min="0" max="100" step="1" name="est-planet-{{ p.name }}" value="{{ defaults[g.phase] }}"
+            data-default="{{ defaults[g.phase] }}" oninput="optSaveEstPlanet('{{ p.name }}', this); this.nextElementSibling.textContent=this.value+'%'">
+          <span class="pv">{{ defaults[g.phase] }}%</span></div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    <div style="margin-top:8px">
+      <label><input type="checkbox" name="opt-unlock-zeffo" {{ 'checked' if unlock_zeffo }}> Unlock Zeffo and max it (3&#9733;)</label>
+      &nbsp;&nbsp;
+      <label><input type="checkbox" name="opt-unlock-mandalore" {{ 'checked' if unlock_mandalore }}> Unlock Mandalore and max it (3&#9733;)</label>
+    </div>
+    <div>
+      <label>Deploy: <input type="range" min="0" max="100" step="1" name="opt-deploy" value="{{ deploy }}" oninput="this.nextElementSibling.textContent=this.value+'%'">
+        <span class="pv">{{ deploy }}%</span></label>
+    </div>
+    <div class="muted" style="font-size:12px">
+      Estimates and platoon expectations are per browser; "Reset estimates to defaults" restores them.
+      <button onclick="optResetEst()">Reset estimates to defaults</button>
+    </div>
+  </div>
+  <div class="mfoot">
+    <button onclick="hideOpt()">Cancel</button>
+    <button hx-post="/g/{{ guild_id }}/calc/optimize" hx-include="closest .modal" hx-target="#opt-result" hx-swap="innerHTML"
+      hx-vals='{"mode":"run"}'>Run</button>
+  </div>
+  <div id="opt-result"></div>
+</div>

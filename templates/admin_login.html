@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Admin login — SWGOH reviewer{% endblock %}
+{% block page_title %}Admin login{% endblock %}
+
+{% block main %}
+<p>Enter the admin token (set via SWGOH_ADMIN_TOKEN). Your session lasts 24h.</p>
+<form method="post" action="/admin/login">
+  <label>Token: <input type="password" name="token" autofocus autocomplete="current-password"></label>
+  <button>Sign in</button>
+</form>
+{% endblock %}

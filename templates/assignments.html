@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}{{ guild_name }} · Assignments by member{% endblock %}
+{% block page_title %}{{ guild_name }} · Assignments by member{% endblock %}
+
+{% block page_css %}
+  table.rost th { text-align: right; }
+  table.rost th:first-child { text-align: center; }
+  table.rost td.tot { font-weight: 700; text-align: right; }
+  table.rost td.c { text-align: right; }
+  table.rost td.muted { color: #bbb; text-align: right; }
+  table.rost tr.mrow { cursor: pointer; }
+  table.rost tr.mrow:hover { background: #f4f7fb; }
+  table.rost .car { text-align: center; color: #889; font-size: 10px; width: 18px; }
+  table.rost .mdet { background: #f7f9fc; }
+  table.rost .mdet > td { padding: 10px 14px; }
+  .dhead { font-weight: 700; margin: 8px 0 3px; font-size: 12px; }
+  .dhead:first-child { margin-top: 0; }
+  .pline { font-size: 12px; margin: 2px 0 2px 14px; }
+  .pline.over { color: #b71c1c; }
+  .warn-tag { background: #f9a825; color: #fff; border-radius: 8px; padding: 0 6px; font-size: 10px; margin-left: 6px; }
+  .copy-btn { border: none; background: none; color: #4a6fa5; cursor: pointer; font-size: 11px; padding: 0 4px; text-decoration: underline; }
+{% endblock %}
+
+{% block main %}
+<div class="controls" style="margin-bottom:8px">
+  <label>Search:
+    <input name="search" placeholder="name or ally code"
+      hx-get="/g/{{ guild_id }}/assignments/roster"
+      hx-trigger="input changed delay:300ms"
+      hx-target="#roster" hx-swap="innerHTML">
+  </label>
+  <span class="muted">{{ summary_line }}</span>
+</div>
+<div class="muted" style="margin-bottom:8px">{{ plan_line }}</div>
+<div id="roster">
+  {% include "_assignments_roster.html" %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("click", function (ev) {
+    if (ev.target.closest(".copy-btn")) return;
+    const row = ev.target.closest(".mrow");
+    if (row) {
+      const det = document.getElementById("mdet-" + row.dataset.ac);
+      if (det) det.style.display = det.style.display === "none" ? "" : "none";
+    }
+  });
+  function copyMember(ac) {
+    fetch("/g/{{ guild_id }}/assignments/member/" + ac + "/markdown")
+      .then((r) => r.text())
+      .then((t) => {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t);
+        else window.prompt("Copy:", t);
+      })
+      .catch(() => {});
+  }
+</script>
+{% endblock %}

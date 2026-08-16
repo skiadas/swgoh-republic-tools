@@ -1,0 +1,34 @@
+<div class="m-controls">
+  <input name="search" value="{{ search }}" placeholder="Filter players"
+    hx-get="/g/{{ guild_id }}/report/view?view=matrix" hx-trigger="input changed delay:300ms"
+    hx-include="closest .m-controls" hx-target="#view" hx-swap="innerHTML">
+  <select name="sort" hx-get="/g/{{ guild_id }}/report/view?view=matrix" hx-trigger="change"
+    hx-include="closest .m-controls" hx-target="#view" hx-swap="innerHTML">
+    <option value="name" {{ 'selected' if sort == 'name' }}>Name</option>
+    <option value="gp" {{ 'selected' if sort == 'gp' }}>GP</option>
+    <option value="gap" {{ 'selected' if sort == 'gap' }}>Gap</option>
+  </select>
+  <label><input type="checkbox" name="hide" value="1" {{ 'checked' if hide }}
+    hx-get="/g/{{ guild_id }}/report/view?view=matrix" hx-trigger="change"
+    hx-include="closest .m-controls" hx-target="#view" hx-swap="innerHTML"> hide complete</label>
+</div>
+<table>
+  <thead>
+    <tr><th rowspan="2">Player</th><th rowspan="2">GP</th>
+      {% for c in categories %}<th class="cat-head" colspan="{{ c.squads|length }}">{{ c.name }}</th>{% endfor %}
+    </tr>
+    <tr>{% for c in categories %}{% for s in c.squads %}<th title="{{ R.squad_title(s) }}">{{ s.squad }}</th>{% endfor %}{% endfor %}</tr>
+  </thead>
+  <tbody>
+    {% for p in players %}
+    <tr>
+      <td><b>{{ p.name }}</b> <span class="muted">{{ p.allyCode }}</span></td>
+      <td>{{ p.galacticPower|fmt if p.galacticPower else '-' }}</td>
+      {% for c in categories %}{% for s in c.squads %}
+      {% set cell = R.matrix_cell(s.resByAlly.get(p.allyCode), s) %}
+      <td class="cell {{ cell.cls }}">{{ cell.text|safe }}</td>
+      {% endfor %}{% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

@@ -1,0 +1,85 @@
+{% macro goal_label(day, planet, g, cur, special, thresholds) %}
+{%- set icons = '0' if g == 0 else (('🎁' * g) if (special and g < 3) else ('★' * g)) -%}
+{%- set tip = 'Preload (no star)' if g == 0 else (('1★ gift: ' ~ (thresholds[g-1]|pfmt)) if special and g < 3 else (g ~ '★: ' ~ (thresholds[g-1]|pfmt))) -%}
+<label class="gopt {{ 'on' if (cur|string) == (g|string) }}" title="{{ tip }}">
+  <input type="radio" name="d{{ day }}-{{ planet }}" value="{{ g }}" {% if (cur|string) == (g|string) %}checked{% endif %}
+    {% if not can_edit %} disabled{% endif %}>{{ icons }}</label>
+{%- endmacro %}
+
+{% macro planet_card(r, row) %}
+{% set p = row.a.planet %}
+<div class="pcol">
+  <div class="pname">{{ p.name }}{% if row.special %} <span class="badge">{{ row.a.special }}</span>{% endif %}</div>
+  <div class="ctl"><div class="seg" role="radiogroup">
+    {% for g in [0, 1, 2, 3] %}{{ goal_label(r.day, p.name, g, row.goal, row.special, p.thresholds) }}{% endfor %}
+  </div></div>
+  <div class="ctl"><div class="seg" role="radiogroup">
+    {% for n in range(0, 7) %}
+    <label class="gopt {{ 'on' if row.plats == n }}{{ ' disabled' if n > row.remaining }}">
+      <input type="radio" name="d{{ r.day }}-{{ p.name }}-plats" value="{{ n }}"
+        {% if row.plats == n %}checked{% endif %}{% if n > row.remaining %} disabled{% endif %}>{{ n }}</label>
+    {% endfor %}
+  </div></div>
+  <div class="ctl"><input name="d{{ r.day }}-{{ p.name }}-cm" type="range" min="0" max="100" step="1" value="{{ row.cp }}"
+    {% if not can_edit %} disabled{% endif %}> <span class="cmval">{{ row.cp }}%</span></div>
+</div>
+{% endmacro %}
+
+<form class="calc"
+  {% if can_edit %}hx-post="/g/{{ guild_id }}/calc/set" hx-target="#calc" hx-swap="innerHTML"
+  hx-trigger="change from:input"{% endif %}>
+  {% if not can_edit %}
+  <div class="notice">Read-only — admins can edit this calculator; sign in at <a href="/admin/login">/admin/login</a>.</div>
+  {% endif %}
+  <div class="controls">
+    <label>Deploy: <input name="deploy" type="range" min="0" max="100" value="{{ deploy }}"
+      {% if not can_edit %} disabled{% endif %}>
+      <b>{{ deploy }}%</b></label>
+    <label title="Show scores as e.g. 1.2B / 234.3M"><input type="checkbox" name="compact" value="1"
+      {% if compact %}checked{% endif %} {% if not can_edit %} disabled{% endif %}> compact numbers</label>
+    <span class="muted">Guild GP <b>{{ guild_gp|fmt }}</b> · total stars <b>{{ total_stars }}</b></span>
+  </div>
+  <div class="hint">Per day you pick each accessible planet's action. The page reports the min % of that day's combat-mission
+    points needed to hit your star goals, the max % you can earn without accidentally starring a preloaded planet, and how many
+    points carry over to the next day.</div>
+
+  {% for r in days %}
+  <section class="day {{ 'bad' if not r.feasible else ('low' if r.shortEst else '') }}">
+    <h3>Day {{ r.day }}</h3>
+    {% if not r.feasible %}
+    <div class="day-banner bad">⚠ <b>Cannot reach these goals.</b> Even 100% CM is not enough — still short by {{ (r.cmMinPts - r.totalCM)|round|fmt }} points.</div>
+    {% elif r.shortEst %}
+    <div class="day-banner low">⚠ <b>Estimated CM falls short.</b> Your sliders give ~{{ r.estPct|round(0) }}% of the day CM, but these goals need {{ r.minPct|round(1) }}% — short by {{ r.shortPts|round|fmt }} points.</div>
+    {% endif %}
+    <div class="daygrid">
+      <div class="labels-col"><div class="lab-spacer"></div><div class="lab">Star goal</div><div class="lab">Platoons</div><div class="lab">CM%</div></div>
+      <div class="planets-col">
+        {% set std = r.rows | selectattr('special', 'equalto', false) | list | sort(attribute='order') %}
+        {% set specs = r.rows | selectattr('special') | list | sort(attribute='order') %}
+        {% if std %}<div class="prow-pl">{% for row in std %}{{ planet_card(r, row) }}{% endfor %}</div>{% endif %}
+        {% if specs %}<div class="prow-pl specials">{% for row in specs %}{{ planet_card(r, row) }}{% endfor %}</div>{% endif %}
+      </div>
+      <div class="overall">
+        {% set minp = r.minPct if r.feasible else (r.cmMinPts / r.totalCM * 100 if r.totalCM else 0) %}
+        <div class="metric {{ 'bad' if not r.feasible }}"><span>min CM</span><b>{{ minp|round(1) }}%</b></div>
+        <div class="metric"><span>max CM</span><b>{{ r.maxPct|round(1) }}%</b></div>
+        <div class="metric"><span>bank in</span><b>{{ r.bankIn|fmt }}</b></div>
+        <div class="metric"><span>carry out</span><b>{{ r.carry|fmt }}</b></div>
+        <div class="metric"><span>wasted deploy</span><b>{{ r.wastedGp|fmt }}</b></div>
+      </div>
+    </div>
+    {% for t in r.unlockToggles %}
+    <div class="unlockrow"><label><input type="checkbox" name="unlock-{{ t.id }}"
+      {% if (unlock_zeffo if t.id == 'zeffo' else unlock_mandalore) %}checked{% endif %}
+      {% if not can_edit %} disabled{% endif %}> Unlock {{ t.name }} (after {{ t.trigger }})</label></div>
+    {% endfor %}
+    <div class="overall-bottom"><span class="detail">minTP {{ r.minTP|fmt }} · maxTP {{ r.maxTP|fmt }} · platoons {{ r.platoon|fmt }} ·
+      deploy {{ r.gp|fmt }} · CM avail {{ r.totalCM|fmt }}</span>
+      {% if not r.feasible %}<span class="warn">⚠ goals exceed deploy + platoons + 100% CM</span>{% endif %}
+    </div>
+  </section>
+  {% endfor %}
+
+  <div class="summary"><b>Total stars: {{ total_stars }}</b> &nbsp;·&nbsp; Light {{ cs.light }} · Dark {{ cs.dark }} ·
+    Neutral {{ cs.neutral }} · Zeffo {{ cs.zeffo }} · Mandalore {{ cs.mandalore }}</div>
+</form>

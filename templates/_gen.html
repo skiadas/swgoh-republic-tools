@@ -1,0 +1,27 @@
+<div class="modal">
+  <header class="mhead"><h2>Auto-generate assignments</h2><button onclick="hideGen()">&#215;</button></header>
+  <div class="mbody">
+    <input type="hidden" name="day" value="{{ day }}">
+    <div><b>Scope</b></div>
+    <div><label><input type="radio" name="gen-scope" value="all" checked> All days</label></div>
+    <div><label><input type="radio" name="gen-scope" value="day"> This day ({{ day }})</label></div>
+    <div><label><input type="radio" name="gen-scope" value="planet"> A planet
+      <select name="gen-planet">{% for p in planet_names %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></label></div>
+    <div style="margin-top:8px"><b>Platoon filling</b></div>
+    <div><label><input type="radio" name="gen-policy" value="plan" checked> Fill according to plan (complete the plan's platoon count, preload the rest to 14/15)</label></div>
+    <div><label><input type="radio" name="gen-policy" value="full"> Fill platoons fully (complete everything)</label></div>
+    <div style="margin-top:8px"><b>Member selection</b></div>
+    <div><label><input type="radio" name="gen-strategy" value="strongest" checked> Strongest available unit first</label></div>
+    <div><label><input type="radio" name="gen-strategy" value="weakest"> Weakest available unit first</label></div>
+    <div><label><input type="radio" name="gen-strategy" value="minimize"> Minimize assignments per player</label></div>
+    <div class="muted" style="font-size:12px;margin-top:8px">
+      Fills only uncovered slots; "fill according to plan" leaves a Galactic Legend (or least-constrained) unit unassigned in each preloaded platoon.
+    </div>
+  </div>
+  <div class="mfoot">
+    <button onclick="hideGen()">Cancel</button>
+    <button hx-post="/g/{{ guild_id }}/platoons/generate"
+      hx-include="closest .modal" hx-target="#day" hx-swap="innerHTML"
+      hx-on::after-request="hideGen()">Generate</button>
+  </div>
+</div>

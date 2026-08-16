@@ -1,0 +1,37 @@
+<div class="sq-select">
+  <label>Player:
+    <select hx-get="/g/{{ guild_id }}/report/view?view=players" hx-target="#view" hx-swap="innerHTML"
+      name="player" hx-trigger="change">
+      {% for p in players %}<option value="{{ p.allyCode }}" {{ 'selected' if p.allyCode == player }}>{{ p.name }} ({{ p.allyCode }})</option>{% endfor %}
+    </select>
+  </label>
+</div>
+{% set p = players|selectattr('allyCode', 'equalto', player)|first %}
+{% if p %}
+<div class="player-card">
+  <h3>{{ p.name }} <span class="muted">{{ p.allyCode }}</span>
+    <span class="status-meta">GP {{ p.galacticPower|fmt if p.galacticPower else '-' }}</span></h3>
+  {% for c in categories %}
+  {% set rows = [] %}
+  {% for s in c.squads %}{% if s.resByAlly.get(player) %}{% set _ = rows.append(s) %}{% endif %}{% endfor %}
+  {% if rows %}
+  <h4>{{ c.name }} <span class="muted">({{ rows|length }} squads)</span></h4>
+  <table>
+    <thead><tr><th>Squad</th><th>Status</th><th>Required</th></tr></thead>
+    <tbody>
+      {% for s in rows %}
+      {% set r = s.resByAlly.get(player) %}
+      <tr class="{{ R.squad_row_class(s, r) }}">
+        <td><b>{{ s.squad }}</b></td>
+        <td>{% set st = R.squad_status(s, r) %}<span class="badge {{ st.cls }}">{{ st.text }}</span></td>
+        <td>{% for u in r.required %}{% set chip = R.unit_chip(u, s, r.nextThreshold) %}
+          <span class="chip chip-{{ chip.status }}">{{ chip.sym }} {{ chip.name }} <span class="status-meta">{{ chip.relic }}</span></span>
+          {% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
