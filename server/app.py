@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import hmac
 import json
+import logging
 import re
 import threading
 import time
@@ -204,6 +205,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         try:
             discord_id, username = auth.exchange_code(code, redirect)
         except Exception as exc:  # noqa: BLE001
+            logging.getLogger("uvicorn.error").error("Discord exchange failed: %s", exc)
             raise HTTPException(502, f"Discord exchange failed: {exc}") from exc
         resp = RedirectResponse("/auth/me", status_code=302)
         resp.set_cookie(
