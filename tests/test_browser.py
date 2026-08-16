@@ -201,11 +201,13 @@ def test_calc_compact_toggle(admin_page, app_url, errors):
     page.goto(f"{app_url}/g/{GUILD}/calc")
     page.locator('input[name="compact"]').wait_for()
     gp = page.locator(".controls .muted b").first.text_content()
-    assert gp == "654,983,535", f"default should show full numbers, got {gp}"
+    assert gp == "655M", f"compact should be on by default, got {gp}"
+    assert page.locator('input[name="compact"]:checked').count() == 1, "compact checkbox should default to checked"
+    page.locator('input[name="compact"]').uncheck()
+    page.locator(".controls .muted b", has_text="654,983,535").first.wait_for(timeout=8000)
+    assert page.locator(".controls .muted b").first.text_content() == "654,983,535", "unchecked should show full numbers"
     page.locator('input[name="compact"]').check()
     page.locator(".controls .muted b", has_text="655M").first.wait_for(timeout=8000)
-    assert page.locator(".controls .muted b").first.text_content() == "655M", "compact should abbreviate to 1 decimal"
-    assert page.locator('input[name="compact"]:checked').count() == 1, "compact checkbox should persist checked"
     page.locator(".summary", has_text="Total stars").wait_for(timeout=8000)
     assert not errors, f"console errors: {errors}"
 

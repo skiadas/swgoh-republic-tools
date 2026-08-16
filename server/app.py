@@ -328,7 +328,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         days = calc_logic.compute(data, days_state, deploy, unlock_zeffo, unlock_mandalore)
         return data, days, days_state, deploy, unlock_zeffo, unlock_mandalore
 
-    def calc_body_context(guild_id, data, days, deploy, unlock_zeffo, unlock_mandalore, can_edit=False, compact=False):
+    def calc_body_context(guild_id, data, days, deploy, unlock_zeffo, unlock_mandalore, can_edit=False, compact=True):
         last = days[-1] if days else None
         return {
             "guild_id": guild_id,
