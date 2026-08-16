@@ -85,6 +85,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <button onclick="toggleAll(false)">Collapse all</button>
     <span class="muted" id="summary-line"></span>
   </div>
+  <div class="muted" id="plan-meta" style="margin-bottom:8px"></div>
   <div id="roster"></div>
 </main>
 <script>
@@ -101,7 +102,8 @@ const DATA = {{ data_json }};
   const PLANET_MAP = {};
   for (const m of data.members) MEMBER_MAP[String(m.ac)] = m;
   for (const p of data.planets) PLANET_MAP[p.name] = p;
-  const state = { fills: {}, search: "" };
+  const state = { fills: {}, search: "", guildPlan: null, usingGuild: false };
+  const GUILD_VALUE = "__guild__";
   const MAX = {{ MAX_UNITS }};
 
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
@@ -111,16 +113,41 @@ const DATA = {{ data_json }};
     const saved = loadPlans()[name] || {};
     state.fills = saved.fills || {};
   }
+  function loadGuild() {
+    if (typeof fetch !== "function") return;
+    fetch("/g/" + guildId + "/plan")
+      .then(r => r.json())
+      .then(d => {
+        if (!d || !d.plan) return;
+        state.guildPlan = d.plan;
+        state.usingGuild = true;
+        state.fills = (d.plan.payload && d.plan.payload.fills) || {};
+        render();
+      })
+      .catch(() => {});
+  }
   function planControlsHtml() {
+    let html = '<select id="plan-select" onchange="selectPlan()">';
+    if (state.guildPlan) {
+      html += '<option value="' + GUILD_VALUE + '"' + (state.usingGuild ? " selected" : "") + ">Guild: " + esc(state.guildPlan.name) + "</option>";
+    }
     const plans = loadPlans();
     const names = Object.keys(plans).length ? Object.keys(plans) : ["Default"];
-    let html = '<select id="plan-select" onchange="selectPlan()">';
-    for (const n of names) html += '<option value="' + esc(n) + '"' + (n === planName() ? " selected" : "") + ">" + esc(n) + "</option>";
+    for (const n of names) {
+      html += '<option value="' + esc(n) + '"' + (!state.usingGuild && n === planName() ? " selected" : "") + ">" + esc(n) + "</option>";
+    }
     return html + "</select>";
   }
   window.selectPlan = function () {
     const sel = document.getElementById("plan-select");
     if (!sel) return;
+    if (sel.value === GUILD_VALUE) {
+      state.usingGuild = true;
+      if (state.guildPlan) state.fills = (state.guildPlan.payload && state.guildPlan.payload.fills) || {};
+      render();
+      return;
+    }
+    state.usingGuild = false;
     try { localStorage.setItem(LS_CURRENT, sel.value); } catch (e) { /* ignore */ }
     loadPlan(sel.value);
     render();
@@ -232,6 +259,16 @@ const DATA = {{ data_json }};
   function render() {
     const sel = document.getElementById("plan-select");
     if (sel) sel.outerHTML = planControlsHtml();
+    const meta = document.getElementById("plan-meta");
+    if (meta) {
+      if (state.usingGuild && state.guildPlan) {
+        const at = String(state.guildPlan.updatedAt || "").slice(0, 16).replace("T", " ");
+        meta.textContent = "Guild plan \u201c" + state.guildPlan.name + "\u201d \u00b7 updated by "
+          + (state.guildPlan.ownerName || "admin") + (at ? " \u00b7 " + at : "");
+      } else {
+        meta.textContent = "Local plan \u201c" + planName() + "\u201d (this browser)";
+      }
+    }
     const hasFills = Object.keys(state.fills).some(pn => Object.keys(state.fills[pn] || {}).length);
     if (!hasFills) {
       document.getElementById("roster").innerHTML =
@@ -261,6 +298,7 @@ const DATA = {{ data_json }};
 
   loadPlan(planName());
   render();
+  loadGuild();
 })();
 </script>
 </body>

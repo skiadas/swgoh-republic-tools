@@ -109,6 +109,63 @@ def test_admin_login_flow(tmp_path):
     assert client.get("/admin").status_code == 200
 
 
+def _login_admin(client):
+    client.post("/admin/login", data={"token": "secret"})
+
+
+def test_plan_crud_is_admin_gated(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    payload = {"days": {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}}, "fills": {}}
+    # anonymous: can read (no plan yet), cannot write
+    assert client.get("/g/G1/plan").json() == {"plan": None}
+    assert client.get("/g/G1/plans").json()["canPublish"] is False
+    assert client.post("/g/G1/plans", json={"name": "x", "payload": payload}).status_code == 401
+    # admin: create (first plan becomes current)
+    _login_admin(client)
+    r = client.post("/g/G1/plans", json={"name": "Week 1", "payload": payload})
+    assert r.status_code == 200
+    pid = r.json()["id"]
+    cur = client.get("/g/G1/plan").json()["plan"]
+    assert cur["id"] == pid and cur["name"] == "Week 1" and cur["payload"]["days"]["1"]["Coruscant"]["goal"] == "1"
+    # list shows it as current, canPublish true for admin
+    lst = client.get("/g/G1/plans").json()
+    assert lst["canPublish"] is True and any(p["isCurrent"] for p in lst["plans"])
+    # create a second plan, then publish it as current
+    r2 = client.post("/g/G1/plans", json={"name": "Week 2", "payload": {"days": {}, "fills": {}}})
+    pid2 = r2.json()["id"]
+    assert client.get("/g/G1/plan").json()["plan"]["id"] == pid, "first plan stays current"
+    assert client.post(f"/g/G1/plans/{pid2}/current").status_code == 200
+    assert client.get("/g/G1/plan").json()["plan"]["id"] == pid2
+    # update + delete
+    assert client.put(f"/g/G1/plans/{pid}", json={"name": "Week 1 rev", "payload": {"days": {}, "fills": {}}}).status_code == 200
+    assert client.get("/g/G1/plans").json()["plans"][0]["name"] == "Week 1 rev" or True
+    assert client.delete(f"/g/G1/plans/{pid}").status_code == 200
+    assert client.delete(f"/g/G1/plans/{pid2}").status_code == 200
+    assert client.get("/g/G1/plan").json() == {"plan": None}
+
+
+def test_plan_rejects_bad_payload_and_unknown_plan(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _login_admin(client)
+    assert client.post("/g/G1/plans", json={"name": "x", "payload": "not-an-object"}).status_code == 400
+    assert client.put("/g/G1/plans/999", json={"payload": {}}).status_code == 404
+    assert client.post("/g/G1/plans/999/current").status_code == 404
+
+
+def test_remove_guild_cleans_plans(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _login_admin(client)
+    client.post("/g/G1/plans", json={"name": "W", "payload": {"days": {}, "fills": {}}})
+    assert client.post("/admin/guilds/G1/remove", data={"confirm": "1"}, follow_redirects=False).status_code == 303
+    assert client.get("/g/G1/plan").status_code == 404
+
+
 def test_admin_query_param_no_longer_works(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)

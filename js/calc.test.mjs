@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { JSDOM } from "jsdom";
 import { GUILD, assertDataReady, runUv, loadPage, pageData, dataFile } from "./helpers.mjs";
 
 function calcDom() {
@@ -54,5 +56,62 @@ test("share URL embeds the plan and round-trips", () => {
   assert.equal(decoded.unlockZeffo, true);
   assert.equal(decoded.days["1"][planet].goal, "3");
   assert.equal(decoded.days["1"][planet].platoons, 6);
+  dom.window.close();
+});
+
+function calcDomWithFetch(beforeParse) {
+  assertDataReady();
+  runUv("rote_calc.py", GUILD);
+  const html = readFileSync(dataFile("guilds", `${GUILD}.calculator.html`), "utf8");
+  return new JSDOM(html, {
+    url: `http://x.test/g/${GUILD}/calc`,
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(w) {
+      w.TextEncoder = TextEncoder;
+      w.TextDecoder = TextDecoder;
+      beforeParse(w);
+    },
+  });
+}
+
+test("calculator loads the guild plan's days from the server", async () => {
+  const planet = "Coruscant";
+  const guildPlan = {
+    id: 1, name: "Week 1", payload: { deployPct: 100, unlockZeffo: false, unlockMandalore: false, days: { "1": { [planet]: { goal: "3", platoons: 6, cmPct: 50 } } }, fills: {} },
+  };
+  const dom = calcDomWithFetch((w) => {
+    w.fetch = async () => ({ json: async () => ({ plan: guildPlan }) });
+  });
+  const w = dom.window;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const r = w.document.querySelector(`input[name="d1-${planet}"][value="3"]`);
+  assert.ok(r && r.checked, "guild plan star goal loaded");
+  dom.window.close();
+});
+
+test("?planId= loads a server plan", async () => {
+  const planet = "Coruscant";
+  const plan = {
+    id: 5, name: "Week 1", payload: { deployPct: 100, unlockZeffo: false, unlockMandalore: false, days: { "1": { [planet]: { goal: "2", platoons: 4, cmPct: 30 } } }, fills: {} },
+  };
+  const dom = new JSDOM(readFileSync(dataFile("guilds", `${GUILD}.calculator.html`), "utf8"), {
+    url: `http://x.test/g/${GUILD}/calc?planId=5`,
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(w) {
+      w.TextEncoder = TextEncoder;
+      w.TextDecoder = TextDecoder;
+      w.fetch = async (url) => {
+        const u = String(url);
+        if (u.endsWith("/plans")) return { json: async () => ({ plans: [plan] }) };
+        return { json: async () => ({ plan: null }) };
+      };
+    },
+  });
+  const w = dom.window;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const r = w.document.querySelector(`input[name="d1-${planet}"][value="2"]`);
+  assert.ok(r && r.checked, "planId plan star goal loaded");
   dom.window.close();
 });

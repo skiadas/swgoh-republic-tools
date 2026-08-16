@@ -237,6 +237,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <button onclick="document.getElementById('import-file').click()">Import JSON</button>
     <button onclick="openGen({mode:'all'})" title="Auto-generate assignments for all days and planets">Generate all</button>
     <button onclick="clearAll()" title="Clear all platoon assignments">Clear all</button>
+    <span id="publish-btns" style="display:none">
+      <button onclick="saveToGuild()" title="Save the current plan to the server">Save to server</button>
+      <button onclick="publishToGuild()" title="Make the current plan the guild plan everyone sees">Publish to guild</button>
+    </span>
     <input type="file" id="import-file" accept="application/json,.json" style="display:none" onchange="importPlanFile(this)">
     &nbsp;<a href="./calc" style="color:#9db3e0">open calculator</a>
     &nbsp;<a href="./assignments" style="color:#9db3e0">by member</a>
@@ -325,7 +329,7 @@ const DATA = {{ data_json }};
   const MEMBER_MAP = {};
   for (const p of data.planets) PLANET_MAP[p.name] = p;
   for (const m of data.members) MEMBER_MAP[String(m.ac)] = m;
-  const state = { currentDay: 1, deployPct: 100, unlockZeffo: false, unlockMandalore: false, days: {}, fills: {} };
+  const state = { currentDay: 1, deployPct: 100, unlockZeffo: false, unlockMandalore: false, days: {}, fills: {}, serverPlans: [], canPublish: false, currentServerId: null, currentServerName: null };
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
@@ -355,21 +359,96 @@ const DATA = {{ data_json }};
     state.days = saved.days || {};
     state.fills = saved.fills || {};
   }
+  function planPayload() {
+    return { deployPct: state.deployPct, unlockZeffo: state.unlockZeffo, unlockMandalore: state.unlockMandalore, days: state.days, fills: state.fills };
+  }
+  function applyServerPlan(p) {
+    state.currentServerId = p.id;
+    state.currentServerName = p.name;
+    state.deployPct = (p.payload && p.payload.deployPct) !== undefined ? p.payload.deployPct : 100;
+    state.unlockZeffo = !!(p.payload && p.payload.unlockZeffo);
+    state.unlockMandalore = !!(p.payload && p.payload.unlockMandalore);
+    state.days = (p.payload && p.payload.days) || {};
+    state.fills = (p.payload && p.payload.fills) || {};
+    try { localStorage.setItem(LS_CURRENT, p.name); } catch (e) { /* ignore */ }
+    persist();
+  }
+  function refreshServer() {
+    if (typeof fetch !== "function") return Promise.resolve();
+    return fetch("/g/" + guildId + "/plans").then(r => r.json()).then(d => {
+      if (!d) return;
+      state.serverPlans = d.plans || [];
+      state.canPublish = !!d.canPublish;
+      render();
+    }).catch(() => {});
+  }
+  function loadServer() {
+    if (typeof fetch !== "function") return;
+    return fetch("/g/" + guildId + "/plans").then(r => r.json()).then(d => {
+      if (!d) return;
+      state.serverPlans = d.plans || [];
+      state.canPublish = !!d.canPublish;
+      const current = state.serverPlans.find(p => p.isCurrent);
+      if (state.currentServerId === null && current) applyServerPlan(current);
+      render();
+    }).catch(() => {});
+  }
   function planControlsHtml() {
+    let html = '<select id="plan-select" onchange="selectPlan()">';
+    if (state.serverPlans.length) {
+      for (const p of state.serverPlans) {
+        html += '<option value="s:' + p.id + '"' + (state.currentServerId === p.id ? " selected" : "") + ">"
+          + esc(p.name) + (p.isCurrent ? " (current)" : "") + "</option>";
+      }
+      html += '<option disabled>\u2014 local \u2014</option>';
+    }
     const plans = loadPlans();
     const names = Object.keys(plans).length ? Object.keys(plans) : ["Default"];
-    let html = '<select id="plan-select" onchange="selectPlan()">';
     for (const n of names) {
-      html += '<option value="' + esc(n) + '"' + (n === planName() ? " selected" : "") + ">" + esc(n) + "</option>";
+      html += '<option value="' + esc(n) + '"' + (state.currentServerId === null && n === planName() ? " selected" : "") + ">" + esc(n) + "</option>";
     }
     return html + "</select>";
   }
   window.selectPlan = function () {
     const sel = document.getElementById("plan-select");
     if (!sel) return;
-    try { localStorage.setItem(LS_CURRENT, sel.value); } catch (e) { /* ignore */ }
-    loadPlan(sel.value);
+    const v = sel.value;
+    if (v.indexOf("s:") === 0) {
+      const p = state.serverPlans.find(x => "s:" + x.id === v);
+      if (p) { applyServerPlan(p); render(); }
+      return;
+    }
+    state.currentServerId = null;
+    state.currentServerName = null;
+    try { localStorage.setItem(LS_CURRENT, v); } catch (e) { /* ignore */ }
+    loadPlan(v);
     render();
+  };
+  window.saveToGuild = function () {
+    if (!state.canPublish) return Promise.resolve();
+    const name = state.currentServerName || planName() || "Plan";
+    const payload = planPayload();
+    const url = "/g/" + guildId + "/plans" + (state.currentServerId !== null ? "/" + state.currentServerId : "");
+    const opts = {
+      method: state.currentServerId !== null ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name, payload: payload }),
+    };
+    return fetch(url, opts).then(r => r.json()).then(d => {
+      if (state.currentServerId === null && d && d.id) {
+        state.currentServerId = d.id;
+        state.currentServerName = name;
+      }
+      showNotice("Saved plan <b>" + esc(name) + "</b> to the server.");
+    }).then(refreshServer).catch(() => { showNotice("Could not save the plan to the server."); });
+  };
+  window.publishToGuild = function () {
+    if (!state.canPublish || state.currentServerId === null) return Promise.resolve();
+    return fetch("/g/" + guildId + "/plans/" + state.currentServerId + "/current", { method: "POST" })
+      .then(r => r.json())
+      .then(() => { showNotice("Published <b>" + esc(state.currentServerName || "plan") + "</b> as the guild plan."); })
+      .then(refreshServer)
+      .catch(() => { showNotice("Could not publish the plan."); });
   };
   window.openNewPlan = function () {
     document.getElementById("np-name").value = "";
@@ -842,6 +921,8 @@ const DATA = {{ data_json }};
     document.getElementById("warnings").innerHTML = warningsHtml(d);
     const sel = document.getElementById("plan-select");
     if (sel) sel.outerHTML = planControlsHtml();
+    const pb = document.getElementById("publish-btns");
+    if (pb) pb.style.display = state.canPublish ? "" : "none";
   }
 
   // ---- export / import (JSON file, full plan: star plan + fills) ----
@@ -960,6 +1041,7 @@ const DATA = {{ data_json }};
 
   loadPlan(planName());
   render();
+  loadServer();
 })();
 </script>
 </body>

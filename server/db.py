@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS job_log (
     status TEXT,
     message TEXT
 );
+CREATE TABLE IF NOT EXISTS guild_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    owner_allycode TEXT,
+    owner_name TEXT,
+    is_current INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_guild_plans_guild ON guild_plans(guild_id);
 """
 
 
@@ -73,8 +85,9 @@ class DB:
         return self._row("SELECT * FROM guilds WHERE id = ?", (guild_id,))
 
     def delete_guild(self, guild_id):
-        """Remove a guild and its job history (discord links are player-level and stay)."""
+        """Remove a guild, its plans and job history (discord links are player-level and stay)."""
         self._exec("DELETE FROM guilds WHERE id = ?", (guild_id,))
+        self._exec("DELETE FROM guild_plans WHERE guild_id = ?", (guild_id,))
         self._exec("DELETE FROM job_log WHERE guild_id = ?", (guild_id,))
 
     def upsert_guild(self, guild_id, name=None, tb_id=None, enabled=None, squads_json=None):
@@ -136,3 +149,52 @@ class DB:
         self._exec(
             "UPDATE job_log SET status = 'interrupted', message = 'interrupted by server restart' WHERE status = 'running'"
         )
+
+    # ---- guild plans ----
+    def list_plans(self, guild_id):
+        return self._all("SELECT * FROM guild_plans WHERE guild_id = ? ORDER BY is_current DESC, updated_at DESC", (guild_id,))
+
+    def get_plan(self, plan_id, guild_id):
+        return self._row("SELECT * FROM guild_plans WHERE id = ? AND guild_id = ?", (plan_id, guild_id))
+
+    def get_current_plan(self, guild_id):
+        return self._row("SELECT * FROM guild_plans WHERE guild_id = ? AND is_current = 1", (guild_id,))
+
+    def create_plan(self, guild_id, name, payload, owner_allycode=None, owner_name=None):
+        """Create a plan; the guild's first plan becomes its current plan."""
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO guild_plans (guild_id, name, payload, owner_allycode, owner_name, is_current, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,0,?,?)",
+                (guild_id, name, payload, owner_allycode, owner_name, now_iso(), now_iso()),
+            )
+            plan_id = cur.lastrowid
+            if not self._conn.execute("SELECT 1 FROM guild_plans WHERE guild_id = ? AND is_current = 1", (guild_id,)).fetchone():
+                self._conn.execute("UPDATE guild_plans SET is_current = 1 WHERE id = ?", (plan_id,))
+            self._conn.commit()
+            return plan_id
+
+    def update_plan(self, plan_id, guild_id, name=None, payload=None):
+        fields, params = [], []
+        if name is not None:
+            fields.append("name = ?")
+            params.append(name)
+        if payload is not None:
+            fields.append("payload = ?")
+            params.append(payload)
+        if fields:
+            fields.append("updated_at = ?")
+            params.append(now_iso())
+            params += [plan_id, guild_id]
+            self._exec(f"UPDATE guild_plans SET {', '.join(fields)} WHERE id = ? AND guild_id = ?", params)
+
+    def set_current_plan(self, guild_id, plan_id):
+        """Make `plan_id` the guild's current plan (clears the others)."""
+        with self._lock:
+            self._conn.execute("UPDATE guild_plans SET is_current = 0 WHERE guild_id = ?", (guild_id,))
+            self._conn.execute("UPDATE guild_plans SET is_current = 1 WHERE id = ? AND guild_id = ?", (plan_id, guild_id))
+            self._conn.execute("UPDATE guild_plans SET updated_at = ? WHERE id = ?", (now_iso(), plan_id))
+            self._conn.commit()
+
+    def delete_plan(self, plan_id, guild_id):
+        self._exec("DELETE FROM guild_plans WHERE id = ? AND guild_id = ?", (plan_id, guild_id))

@@ -134,11 +134,13 @@ Self-contained Jinja2 HTML page (`HTML_TEMPLATE`) with data inlined as
 IIFE). Inputs: `data/rote/t05D.json` planets (star thresholds, op platoon
 rewards, CM max from each mission's `pointsPerWave` × `CM_MULTIPLIER`) plus
 `data/guilds/<guildId>.summary.json` guild GP. Plans live in **per-guild**
-`localStorage` keys (no server storage yet); a "Share" button copies a URL with
-the plan payload embedded (`?plan=<base64url>`), and opening such a URL loads it
-as an editable "Shared" plan. Verify the JS with `node --check` on the second
-`<script>` block and `npm test` (jsdom: calculator optimizer sanity 47/52/43/41,
-share round-trip, dashboard matrix — data-dependent, re-derive on game updates).
+`localStorage` keys; the calculator also starts from the server's published
+guild plan when one exists (and `?planId=` opens a server plan). A "Share"
+button copies a URL with the plan payload embedded (`?plan=<base64url>`), and
+opening such a URL loads it as an editable "Shared" plan. Verify the JS with
+`node --check` on the second `<script>` block and `npm test` (jsdom:
+calculator optimizer sanity 47/52/43/41, share round-trip, guild-plan load,
+dashboard matrix — data-dependent, re-derive on game updates).
 Full model (per-day aggregate `compute()`, UI/state, optimizer):
 `docs/rote-calculator.md`.
 
@@ -299,10 +301,15 @@ Tests: `tests/test_server.py` (TestClient, no comlink).
   deletes its DB row + `data/guilds/<id>.*` files.
 - Internal ids are never surfaced to users — e.g. the ROTE campaign id `t05D`
   is a code constant only (no UI shows it).
-- Calculator plans are browser-local (per-guild `localStorage`) and shared as a
-  URL-encoded `?plan=` payload — no server storage yet. Deferred until a
-  "signed-in" concept exists: DB-backed plans (a `guild_plans` table; users
-  edit only their own plans and can clone the guild plan; officers set one plan
-  as the guild's current plan, shown to everyone; share by id or payload).
+- Plans are **server-side** (`guild_plans` table): multiple named plans per
+  guild, one `is_current` (the "guild plan" everyone sees), with
+  `GET/POST /g/<id>/plan(s)` and `PUT /g/<id>/plans/{id}`,
+  `POST .../{id}/current`, `DELETE .../{id}`. Writes are gated on the admin
+  session today (`canPublish` is derived server-side; when Discord OAuth is
+  configured, officer roles will be admitted to the same endpoints). The
+  planner/assignments fetch the guild plan; the planner has Save-to-server /
+  Publish-to-guild buttons; `?planId=` opens a server plan in the calculator.
+  Per-guild browser `localStorage` plans and the JSON export/import + `?plan=`
+  payload share still work as personal drafts.
 - Page-JS verification runs via `npm install && npm test` (jsdom, dev-only; not
   in the Docker CI). Fixtures are generated from the local `data/` at test time.

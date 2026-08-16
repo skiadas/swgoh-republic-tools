@@ -327,6 +327,72 @@ def create_app(outdir=None, db_path=None, comlink=None):
         require_guild(guild_id)
         return FileResponse(safe_guild_file(outdir, guild_id, "assignments.html"))
 
+    # ---- guild plans (server-side shared plans) ----
+
+    def _plan_json(row):
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "payload": json.loads(row["payload"]),
+            "ownerName": row["owner_name"],
+            "isCurrent": bool(row["is_current"]),
+            "updatedAt": row["updated_at"],
+        }
+
+    @app.get("/g/{guild_id}/plan")
+    def guild_plan(guild_id: str):
+        require_guild(guild_id)
+        row = db.get_current_plan(guild_id)
+        return {"plan": _plan_json(row) if row else None}
+
+    @app.get("/g/{guild_id}/plans")
+    def guild_plans_list(guild_id: str, request: Request):
+        require_guild(guild_id)
+        plans = [_plan_json(r) for r in db.list_plans(guild_id)]
+        return {"plans": plans, "canPublish": is_admin(request)}
+
+    @app.post("/g/{guild_id}/plans")
+    async def create_plan(guild_id: str, request: Request, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        data = await request.json()
+        payload = data.get("payload")
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "payload must be a JSON object")
+        name = str(data.get("name") or "Plan")[:80]
+        plan_id = db.create_plan(guild_id, name, json.dumps(payload))
+        return {"id": plan_id}
+
+    @app.put("/g/{guild_id}/plans/{plan_id}")
+    async def update_plan(guild_id: str, plan_id: int, request: Request, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        if db.get_plan(plan_id, guild_id) is None:
+            raise HTTPException(404, "no such plan")
+        data = await request.json()
+        payload = data.get("payload")
+        if payload is not None and not isinstance(payload, dict):
+            raise HTTPException(400, "payload must be a JSON object")
+        db.update_plan(
+            plan_id,
+            guild_id,
+            name=str(data["name"])[:80] if "name" in data and data["name"] is not None else None,
+            payload=json.dumps(payload) if payload is not None else None,
+        )
+        return {"ok": True}
+
+    @app.post("/g/{guild_id}/plans/{plan_id}/current")
+    def set_current_plan(guild_id: str, plan_id: int, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        if db.get_plan(plan_id, guild_id) is None:
+            raise HTTPException(404, "no such plan")
+        db.set_current_plan(guild_id, plan_id)
+        return {"ok": True}
+
+    @app.delete("/g/{guild_id}/plans/{plan_id}")
+    def delete_plan(guild_id: str, plan_id: int, _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        db.delete_plan(plan_id, guild_id)
+        return {"ok": True}
+
     # ---------------- admin ----------------
 
     @app.get("/admin/login", response_class=HTMLResponse)

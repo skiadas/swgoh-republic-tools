@@ -394,3 +394,49 @@ test("clear all wipes fills but keeps the star plan", () => {
   assert.equal(plan.days["1"].Coruscant.goal, "1", "star plan kept");
   dom.window.close();
 });
+
+test("planner loads the guild plan from the server and can save/publish", async () => {
+  const summary = JSON.parse(readFileSync(dataFile("guilds", `${GUILD}.summary.json`), "utf8"));
+  const acA = String(summary.members[0].allyCode);
+  const plans = [
+    {
+      id: 1, name: "Week 1", isCurrent: true, ownerName: "Legend", updatedAt: "2026-08-16T04:00:00+00:00",
+      payload: { deployPct: 100, unlockZeffo: false, unlockMandalore: false, days: { "1": { Coruscant: { goal: "1", platoons: 6, cmPct: 50 } } }, fills: { Coruscant: { "1": { "0": acA } } } },
+    },
+    { id: 2, name: "Week 2", isCurrent: false, ownerName: "Legend", updatedAt: "2026-08-16T05:00:00+00:00", payload: { deployPct: 100, unlockZeffo: false, unlockMandalore: false, days: {}, fills: {} } },
+  ];
+  const calls = [];
+  const dom = new JSDOM(readFileSync(dataFile("guilds", `${GUILD}.platoons.html`), "utf8"), {
+    url: `http://x.test/g/${GUILD}/platoons`,
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(w) {
+      w.localStorage.setItem(`roteCalcPlans:${GUILD}`, JSON.stringify({ T: { days: {}, fills: {} } }));
+      w.localStorage.setItem(`roteCalcCurrent:${GUILD}`, "T");
+      w.fetch = async (url, opts) => {
+        const u = String(url), m = (opts && opts.method) || "GET";
+        calls.push({ url: u, method: m });
+        if (m === "GET" && u.endsWith("/plans")) return { json: async () => ({ plans, canPublish: true }) };
+        if (m === "PUT" && /\/plans\/\d+$/.test(u)) return { json: async () => ({ ok: true }) };
+        if (m === "POST" && u.endsWith("/current")) return { json: async () => ({ ok: true }) };
+        if (m === "POST" && u.endsWith("/plans")) return { json: async () => ({ id: 9 }) };
+        return { json: async () => ({ plan: null }) };
+      };
+    },
+  });
+  const w = dom.window;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(w.document.getElementById("plan-select").value, "s:1", "current guild plan selected");
+  assert.ok([...w.document.querySelectorAll(".planet .pname")].map((n) => n.textContent).includes("Coruscant"), "guild plan days loaded");
+  assert.notEqual(w.document.getElementById("publish-btns").style.display, "none", "publish buttons shown for admin");
+  await w.saveToGuild();
+  assert.ok(calls.some((c) => c.method === "PUT" && /\/plans\/1$/.test(c.url)), "save PUTs to the current server plan");
+  await w.publishToGuild();
+  assert.ok(calls.some((c) => c.method === "POST" && c.url.endsWith("/plans/1/current")), "publish sets current");
+  // switch to the local plan
+  const sel = w.document.getElementById("plan-select");
+  sel.value = "T";
+  w.selectPlan();
+  assert.equal(w.document.querySelectorAll(".planet").length, 0, "local empty plan shown");
+  dom.window.close();
+});

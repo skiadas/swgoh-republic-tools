@@ -380,7 +380,27 @@ const DATA = {{ data_json }};
     }
   };
   function loadSharedPlan() {
-    const enc = new URLSearchParams(location.search).get("plan");
+    const params = new URLSearchParams(location.search);
+    const planId = params.get("planId");
+    if (planId) {
+      // load a server plan by id (short share link); async
+      if (typeof fetch === "function") {
+        fetch("/g/" + guildId + "/plans").then(r => r.json()).then(d => {
+          const p = ((d && d.plans) || []).find(x => String(x.id) === String(planId));
+          if (p && p.payload) {
+            state.deployPct = p.payload.deployPct !== undefined ? p.payload.deployPct : 100;
+            state.unlockZeffo = !!p.payload.unlockZeffo;
+            state.unlockMandalore = !!p.payload.unlockMandalore;
+            state.days = p.payload.days || {};
+            try { localStorage.setItem(LS_CURRENT, p.name || "Shared"); } catch (e) { /* ignore */ }
+            persist();
+            render();
+          }
+        }).catch(() => {});
+      }
+      return true;
+    }
+    const enc = params.get("plan");
     const shared = enc ? decodePlan(enc) : null;
     if (!shared) return false;
     state.deployPct = shared.deployPct !== undefined ? shared.deployPct : 100;
@@ -390,6 +410,22 @@ const DATA = {{ data_json }};
     try { localStorage.setItem(LS_CURRENT, "Shared"); } catch (e) { /* ignore */ }
     persist();
     return true;
+  }
+  function loadGuildPlan() {
+    // start from the guild's published plan (days) when there's no explicit share link
+    if (typeof fetch !== "function") return;
+    fetch("/g/" + guildId + "/plan").then(r => r.json()).then(d => {
+      if (d && d.plan) {
+        const p = d.plan.payload || {};
+        state.deployPct = p.deployPct !== undefined ? p.deployPct : 100;
+        state.unlockZeffo = !!p.unlockZeffo;
+        state.unlockMandalore = !!p.unlockMandalore;
+        state.days = p.days || {};
+        try { localStorage.setItem(LS_CURRENT, d.plan.name); } catch (e) { /* ignore */ }
+        persist();
+        render();
+      }
+    }).catch(() => {});
   }
 
   const PLANET_ORDER = { dark: 0, neutral: 1, light: 2, zeffo: 3, mandalore: 4 };
@@ -1131,6 +1167,7 @@ const DATA = {{ data_json }};
   compact = loadCompact();
   if (!loadSharedPlan()) loadPlan(planName());
   render();
+  loadGuildPlan();
 })();
 </script>
 </body>

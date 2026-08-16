@@ -189,3 +189,29 @@ test("zero-assignment member copies a zero-assignment Markdown", () => {
   assert.match(copied, /No assignments\./);
   dom.window.close();
 });
+
+test("loads and shows the current guild plan from the server", async () => {
+  const [acA] = realAcs();
+  const guildPlan = {
+    id: 7, name: "Week 1", updatedAt: "2026-08-16T04:00:00+00:00", ownerName: "Legend",
+    payload: { days: {}, fills: { Coruscant: { "1": { "0": acA, "30": acA } } } },
+  };
+  const dom = new JSDOM(readFileSync(dataFile("guilds", `${GUILD}.assignments.html`), "utf8"), {
+    url: `http://x.test/g/${GUILD}/assignments`,
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(w) {
+      w.localStorage.setItem(`roteCalcPlans:${GUILD}`, JSON.stringify({ T: { days: {}, fills: {} } }));
+      w.localStorage.setItem(`roteCalcCurrent:${GUILD}`, "T");
+      w.fetch = async () => ({ json: async () => ({ plan: guildPlan }) });
+    },
+  });
+  const w = dom.window;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.match(w.document.getElementById("plan-meta").textContent, /Guild plan “Week 1”/);
+  assert.match(w.document.getElementById("plan-meta").textContent, /updated by Legend/);
+  const row = [...w.document.querySelectorAll(".mrow")].find((r) => r.dataset.ac === acA);
+  assert.equal(row.querySelector(".tot").textContent, "2", "guild plan fills shown");
+  assert.equal(w.document.getElementById("plan-select").value, "__guild__", "guild plan selected");
+  dom.window.close();
+});
