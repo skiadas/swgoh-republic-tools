@@ -165,6 +165,11 @@ doc), `start_comlink.sh` (comlink in Docker).
 - **Add or edit a page/fragment:** it's a Jinja template extending
   `base.html` (or a fragment), wired from `server/app.py` routes; regenerate
   nothing (server-rendered); add a route/fragment test in `tests/test_server.py`.
+  Hold new pages to the usability checklist: they must render for every role
+  (anonymous/officer/admin), carry navigation back to the site, handle empty
+  data with a notice (no 500), and any `<form>`/`hx-post` target must answer
+  with a redirect or HTML fragment — never a bare JSON dump. The `crawl_*`
+  browser tests (`test_browser.py`) assert all of this automatically.
 - **Edit `calc_logic.py` / `planner.py`:** the model ports were verified
   against the old JS (optimizer 47/52/43/41; generation shapes) — keep
   `tests/test_server.py` green (it asserts those).

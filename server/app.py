@@ -24,6 +24,7 @@ import re
 import threading
 import time
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 import jsonschema
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
@@ -228,7 +229,15 @@ def create_app(outdir=None, db_path=None, comlink=None):
     def auth_me(request: Request):
         session = session_user(request)
         roles = auth.roles_for(db, outdir, session["discord_id"]) if session else {}
-        return templates.TemplateResponse(request, "auth_me.html", {"session": session, "roles": roles})
+        role_links = []
+        for gid, role in roles.items():
+            g = db.get_guild(gid)
+            role_links.append({"guild_id": gid, "name": guild_display(g) if g else gid, "role": role})
+        return templates.TemplateResponse(
+            request,
+            "auth_me.html",
+            {"session": session, "roles": roles, "role_links": role_links, "discord_on": auth.discord_enabled()},
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
@@ -912,13 +921,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return resp
 
     @app.get("/admin", response_class=HTMLResponse)
-    def admin_page(request: Request):
+    def admin_page(request: Request, linked: str = Query(default=""), linked_ally: str = Query(default="")):
         if not is_admin(request):
             return RedirectResponse("/admin/login", status_code=302)
         return templates.TemplateResponse(
             request,
             "admin.html",
-            {"guilds": db.list_guilds(), "links": db.list_discord_links()},
+            {"guilds": db.list_guilds(), "links": db.list_discord_links(), "linked": linked, "linked_ally": linked_ally},
         )
 
     @app.post("/admin/links")
@@ -926,7 +935,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         if not discord_id or not allycode:
             raise HTTPException(400, "need discord_id and allycode")
         db.set_discord_link(discord_id.strip(), allycode.strip())
-        return {"discord_id": discord_id, "allycode": allycode, "status": "ok"}
+        return RedirectResponse(f"/admin?linked={quote(discord_id.strip())}&linked_ally={quote(allycode.strip())}", status_code=303)
 
     @app.get("/admin/g/{guild_id}", response_class=HTMLResponse)
     def admin_guild(guild_id: str, request: Request):

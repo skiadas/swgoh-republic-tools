@@ -4,16 +4,26 @@
 {% block page_title %}{{ 'Signed in' if session else 'Not signed in' }}{% endblock %}
 
 {% block main %}
+<p><a href="/">← Back to home</a></p>
 {% if session %}
 <p>Signed in as <b>{{ session.username }}</b> (discord id <code>{{ session.discord_id }}</code>).</p>
-{% if roles %}
-<p>Roles: {% for g, r in roles.items() %}{{ g }}: {{ r }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+{% if role_links %}
+<p>You can edit these guilds:</p>
+<ul>
+  {% for r in role_links %}
+  <li><a href="/g/{{ r.guild_id }}">{{ r.name }}</a> ({{ r.role }})</li>
+  {% endfor %}
+</ul>
 {% else %}
 <p>No linked player. Share your discord id above with an admin to link an ally code.</p>
 {% endif %}
 <p><a href="/auth/logout">Sign out</a></p>
 {% else %}
 <p>Not signed in.</p>
+{% if discord_on %}
 <p><a href="/auth/login">Sign in with Discord</a></p>
+{% else %}
+<p class="muted">Discord login isn't configured for this instance.</p>
+{% endif %}
 {% endif %}
 {% endblock %}

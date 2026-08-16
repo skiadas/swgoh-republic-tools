@@ -681,3 +681,135 @@ def test_report_matrix_filter(admin_page, app_url, errors):
     search.fill("")
     page.locator("table tbody tr").first.wait_for(timeout=8000)
     assert not errors, f"console errors: {errors}"
+
+
+# ---------------- usability sweep ----------------
+
+OFFICER_ALLY = "679577173"  # a memberLevel-4 leader in the live guild data
+
+GUILD_PATHS = [
+    f"/g/{GUILD}",
+    f"/g/{GUILD}/report",
+    f"/g/{GUILD}/report?view=matrix",
+    f"/g/{GUILD}/report?view=squads",
+    f"/g/{GUILD}/report?view=players",
+    f"/g/{GUILD}/report?view=needs",
+    f"/g/{GUILD}/calc",
+    f"/g/{GUILD}/platoons",
+    f"/g/{GUILD}/platoons?day=2",
+    f"/g/{GUILD}/assignments",
+]
+PATH_MARKERS = {
+    f"/g/{GUILD}": "Home",
+    f"/g/{GUILD}/report": "Squad report",
+    f"/g/{GUILD}/report?view=matrix": "hide complete",
+    f"/g/{GUILD}/report?view=squads": "Pool",
+    f"/g/{GUILD}/report?view=players": "Player:",
+    f"/g/{GUILD}/report?view=needs": "need work",
+    f"/g/{GUILD}/calc": "Calculator",
+    f"/g/{GUILD}/platoons": "Planner",
+    f"/g/{GUILD}/platoons?day=2": "Day 2",
+    f"/g/{GUILD}/assignments": "Assignments",
+}
+
+
+def _set_role(page, app_url, role):
+    from server import auth
+    from server.db import DB
+
+    if role == "admin":
+        page.context.add_cookies([{"name": auth.ADMIN_COOKIE, "value": auth.sign_admin(), "url": app_url}])
+    elif role == "officer":
+        DB("data/service.db").set_discord_link("d1", OFFICER_ALLY)
+        page.context.add_cookies([
+            {"name": auth.SESSION_COOKIE, "value": auth.sign_session({"discord_id": "d1", "username": "Officer"}), "url": app_url}
+        ])
+
+
+@pytest.mark.browser
+def test_crawl_anonymous_pages(page, app_url, errors):
+    paths = [("/", "SWGOH reviewer"), ("/auth/me", "Not signed in")] + list(PATH_MARKERS.items())
+    for path, marker in paths:
+        page.goto(f"{app_url}{path}")
+        assert marker in page.locator("body").text_content(), f"{path} should show {marker!r}"
+        assert not errors, f"console errors on {path}: {errors}"
+    # guild pages carry the shared nav
+    page.goto(f"{app_url}/g/{GUILD}")
+    for label, href in (("Home", f"/g/{GUILD}"), ("Report", f"/g/{GUILD}/report"),
+                        ("Calculator", f"/g/{GUILD}/calc"), ("Planner", f"/g/{GUILD}/platoons"),
+                        ("Assignments", f"/g/{GUILD}/assignments")):
+        assert page.locator(f'nav.gnav a[href="{href}"]', has_text=label).count() == 1, f"nav missing {label}"
+
+
+@pytest.mark.browser
+def test_crawl_officer_pages(page, app_url, errors):
+    _set_role(page, app_url, "officer")
+    page.goto(f"{app_url}/auth/me")
+    assert "Signed in" in page.locator("body").text_content()
+    assert "You can edit these guilds" in page.locator("body").text_content()
+    assert page.locator(f'a[href="/g/{GUILD}"]').count() >= 1, "auth/me should link the officer's guild"
+    for path, marker in PATH_MARKERS.items():
+        page.goto(f"{app_url}{path}")
+        assert marker in page.locator("body").text_content(), f"{path} should show {marker!r}"
+        assert not errors, f"console errors on {path}: {errors}"
+    # officers get the editable controls
+    page.goto(f"{app_url}/g/{GUILD}/calc")
+    assert f'hx-post="/g/{GUILD}/calc/set"' in page.content(), "officer should see the editable calc"
+    page.goto(f"{app_url}/g/{GUILD}/platoons")
+    assert "Generate all" in page.content(), "officer should see the editable planner"
+
+
+@pytest.mark.browser
+def test_crawl_admin_pages(page, app_url, errors):
+    _set_role(page, app_url, "admin")
+    paths = [("/admin", "Admin"), (f"/admin/g/{GUILD}", "Refresh now")] + list(PATH_MARKERS.items())
+    for path, marker in paths:
+        page.goto(f"{app_url}{path}")
+        assert marker in page.locator("body").text_content(), f"{path} should show {marker!r}"
+        assert not errors, f"console errors on {path}: {errors}"
+
+
+@pytest.mark.browser
+def test_crawl_links_resolve(page, app_url, errors):
+    seen = set()
+    for path in list(PATH_MARKERS) + ["/", "/auth/me"]:
+        page.goto(f"{app_url}{path}")
+        page.locator("body").wait_for()
+        hrefs = page.locator("a[href]").evaluate_all("els => els.map(e => e.getAttribute('href')).filter(Boolean)")
+        for href in hrefs:
+            if not href.startswith("/") or href.startswith(("#", "//")):
+                continue
+            url = app_url + href
+            if url in seen:
+                continue
+            seen.add(url)
+            r = page.request.get(url)
+            assert r.status < 400, f"dead link {href} -> {r.status}"
+    assert not errors, f"console errors: {errors}"
+
+
+@pytest.mark.browser
+def test_officer_journey_from_auth_me(page, app_url, errors):
+    _set_role(page, app_url, "officer")
+    page.goto(f"{app_url}/auth/me")
+    page.locator('a[href="/"]', has_text="Back to home").wait_for()
+    page.locator(f'a[href="/g/{GUILD}"]').click()
+    page.locator("nav.gnav").wait_for()
+    page.locator(f'nav.gnav a[href="/g/{GUILD}/calc"]').click()
+    page.locator('input[name="deploy"]').wait_for()
+    page.locator(f'nav.gnav a[href="/g/{GUILD}/assignments"]').click()
+    page.locator("h1", has_text="Assignments").wait_for()
+    assert not errors, f"console errors: {errors}"
+
+
+@pytest.mark.browser
+def test_admin_journey_link_player(page, app_url, errors):
+    _set_role(page, app_url, "admin")
+    page.goto(f"{app_url}/admin")
+    page.locator("h1", has_text="Admin").wait_for()
+    page.fill('form[action="/admin/links"] input[name="discord_id"]', "d7")
+    page.fill('form[action="/admin/links"] input[name="allycode"]', OFFICER_ALLY)
+    page.click('form[action="/admin/links"] button')
+    page.locator(".notice", has_text="Linked Discord user").wait_for(timeout=8000)
+    assert page.locator("h1", has_text="Admin").count() == 1, "should land back on the admin page, not a JSON dump"
+    assert not errors, f"console errors: {errors}"

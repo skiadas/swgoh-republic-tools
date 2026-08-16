@@ -261,7 +261,9 @@ def test_discord_oauth_callback(tmp_path, monkeypatch):
     client.get("/auth/discord/callback", params={"code": "abc"})
     assert client.cookies.get(auth.SESSION_COOKIE), "callback should set the session cookie"
     me = client.get("/auth/me")
-    assert me.status_code == 200 and "Officer" in me.text and "G1" in me.text and "leader" in me.text
+    assert me.status_code == 200 and "Officer" in me.text and "leader" in me.text
+    assert f'href="/g/G1"' in me.text, "auth/me should link to the officer's guild"
+    assert 'href="/"' in me.text, "auth/me should offer a way back home"
 
 
 def test_exchange_code_sends_user_agent(tmp_path, monkeypatch):
@@ -565,7 +567,9 @@ def _link(client, tmp_path, discord_id, allycode):
 def test_auth_me_anonymous(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
-    assert "Not signed in" in client.get("/auth/me").text
+    r = client.get("/auth/me")
+    assert "Not signed in" in r.text
+    assert 'href="/"' in r.text, "even signed-out, auth/me should offer a way back home"
 
 
 def test_roles_for_maps_member_level(tmp_path):
@@ -623,8 +627,38 @@ def test_admin_link_create(tmp_path):
     client = make_client(tmp_path)
     client.post("/admin/login", data={"token": "secret"})
     r = client.post("/admin/links", data={"discord_id": "d9", "allycode": "999"})
-    assert r.status_code == 200
+    assert r.history and r.history[0].status_code == 303, "linking should redirect back to /admin, not dump JSON"
+    assert r.history[0].headers["location"].startswith("/admin")
+    assert "Linked Discord user" in r.text and "d9" in r.text and "999" in r.text, "admin page should confirm the link"
     assert client.app.state.db.get_discord_link("d9")["allycode"] == "999"
+
+
+def test_browser_forms_never_dump_json(tmp_path):
+    """Every <form>/hx-post target in the templates must answer with HTML or a
+    redirect on success — never a bare JSON dump (regression for the admin link
+    form that used to return JSON)."""
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _login_admin(client)
+    pid = client.post("/g/G1/plans", json={"name": "P", "payload": {"days": {}, "fills": {}}}).json()["id"]
+    targets = [
+        ("/admin/login", {"token": "secret"}),
+        ("/admin/links", {"discord_id": "d1", "allycode": "123"}),
+        ("/admin/guilds", {"guild_id": "G1"}),
+        (f"/admin/guilds/G1/refresh", {}),
+        (f"/admin/guilds/G1/regen", {}),
+        ("/g/G1/plans/save", {"name": "X"}),
+        ("/g/G1/plans/working", {"plan_id": ""}),
+        (f"/g/G1/plans/{pid}/ui-set-current", {}),
+        (f"/g/G1/plans/{pid}/ui-rename", {"name": "R"}),
+        (f"/g/G1/plans/{pid}/ui-delete", {}),
+        (f"/admin/guilds/G1/remove", {"confirm": "1"}),
+    ]
+    for path, data in targets:
+        r = client.post(path, data=data)
+        assert r.status_code < 400, f"{path} should succeed with valid data (got {r.status_code})"
+        assert "application/json" not in r.headers.get("content-type", ""), f"{path} must not dump JSON"
 
 
 def test_register_guild_form(tmp_path, monkeypatch):

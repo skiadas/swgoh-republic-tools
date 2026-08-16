@@ -5,6 +5,10 @@
 {% block header_sub %}<a href="/admin/logout">Sign out</a>{% endblock %}
 
 {% block main %}
+{% if linked %}
+<div class="notice">Linked Discord user <b>{{ linked }}</b> to ally code <b>{{ linked_ally }}</b>.</div>
+{% endif %}
+
 <h2>Register a guild</h2>
 <form method="post" action="/admin/guilds">
   <input name="guild_id" placeholder="guild id (optional if ally code)">
