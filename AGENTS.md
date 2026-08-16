@@ -97,6 +97,19 @@ doc), `start_comlink.sh` (comlink in Docker).
   (calc/planner edits write it); **Publish to guild** copies the draft into a
   named current plan and clears the draft. Members read the current plan
   (assignments page).
+- **Admins maintain multiple plans** via the Plans popover on the calculator
+  and planner headers (`_plans.html`; `GET /plans/popover`,
+  `POST /plans/working|save`, `POST /plans/{id}/ui-set-current|ui-rename|
+  ui-delete`). The popover and its POSTs are `HX-Redirect`/`HX-Refresh`
+  driven — htmx 2.x dropped the client `hx-refresh` attribute, so page
+  reloads after a plan switch/publish must come from those response headers.
+- **Working plan** is per admin session via the `plan_work` cookie
+  (`server/app.py:PLAN_COOKIE`): pages show `draft or working or current`
+  (`working_base`). Switching plans clears the draft (confirm-gated).
+  **Publish** updates the working plan in place (falling back to the current
+  plan) and marks it current; **Save as new plan** snapshots the working
+  content into a new named plan without changing current. The draft row is
+  still shared per guild, so simultaneous officers share the edit buffer.
 - **Writes are gated on the admin session** (`canPublish` derived
   server-side); when Discord OAuth is configured, officer roles will be
   admitted to the same endpoints. Anonymous users view only.
@@ -168,6 +181,9 @@ doc), `start_comlink.sh` (comlink in Docker).
 - Plans are server-side (see above); local drafts + JSON export/import were
   superseded by the draft/publish model. Discord OAuth will admit officer
   roles to plan/calc/planner editing without schema changes.
+- The working plan is a per-admin cookie, but the draft edit buffer is still
+  guild-wide (one `guild_drafts` row) — concurrent officers share it; per-admin
+  drafts would be a follow-up if needed.
 - Page-JS verification uses **Playwright** (`uv run pytest -m browser`, needs
   `playwright install chromium`); the pytest route tests can't run JS, so touch
   htmx templates → run the browser suite.

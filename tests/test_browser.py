@@ -344,6 +344,7 @@ def test_planner_publish_to_guild(admin_page, app_url, errors, accept_dialogs):
     assert db.get_draft(GUILD) is None, "publish should clear the draft"
     plans = db.list_plans(GUILD)
     assert any(p["is_current"] for p in plans), "publish should set a current plan"
+    assert len(plans) == 1, "publish should update the working plan in place, not create a new one"
     assert not errors, f"console errors: {errors}"
 
 
@@ -405,6 +406,117 @@ def test_planner_generate_planet(admin_page, app_url, errors):
     page.locator("#gen button", has_text="Generate").click()
     page.locator("#gen .modal").wait_for(state="hidden", timeout=8000)
     page.locator(".notice", has_text="Day 1:").wait_for(timeout=8000)
+    assert not errors, f"console errors: {errors}"
+
+
+def open_plans_popover(page):
+    page.locator("header button", has_text="Plans").click()
+    pop = page.locator("#plans .modal")
+    pop.wait_for(timeout=8000)
+    return pop
+
+
+def wait_header_has(page, text, timeout=8):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            t = page.locator("header .sub").text_content() or ""
+            if text in t:
+                return
+        except Exception:
+            pass
+        time.sleep(0.1)
+    raise AssertionError(f"header never showed {text!r}")
+
+
+def add_alt_plan(name="Alt", goal="1"):
+    from server.db import DB
+
+    db = DB("data/service.db")
+    return db.create_plan(
+        GUILD,
+        name,
+        json.dumps({
+            "deployPct": 100, "unlockZeffo": False, "unlockMandalore": False,
+            "days": {"1": {"Coruscant": {"goal": goal, "platoons": 6, "cmPct": 50}}}, "fills": {},
+        }),
+    )
+
+
+@pytest.mark.browser
+def test_planner_plans_popover_save_new(admin_page, app_url, errors):
+    seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
+    page = admin_page
+    page.goto(f"{app_url}/g/{GUILD}/platoons")
+    page.locator(".planet", has_text="Coruscant").wait_for()
+    pop = open_plans_popover(page)
+    assert "Editing: Browser" in pop.text_content()
+    assert pop.locator(".plan-row", has_text="Browser").locator(".badge-cur").count() == 1
+    pop.locator('input[name="name"]').first.fill("Beta")
+    pop.locator("button", has_text="Save as new plan").click()
+    beta_row = pop.locator(".plan-row", has_text="Beta")
+    beta_row.wait_for(timeout=8000)
+    assert beta_row.locator(".badge-edit").count() == 1, "new plan becomes the working plan"
+    assert pop.locator(".plan-row", has_text="Browser").locator(".badge-cur").count() == 1, "current plan unchanged"
+    assert not errors, f"console errors: {errors}"
+
+
+@pytest.mark.browser
+def test_planner_plans_switch_working(admin_page, app_url, errors):
+    seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
+    add_alt_plan("Alt", goal="2")
+    page = admin_page
+    page.goto(f"{app_url}/g/{GUILD}/platoons")
+    page.locator(".planet", has_text="Coruscant").wait_for()
+    pop = open_plans_popover(page)
+    pop.locator(".plan-row", has_text="Alt").locator("button", has_text="Edit").click()
+    wait_header_has(page, "Alt")
+    page.locator(".planet", has_text="Coruscant").wait_for(timeout=8000)
+    page.goto(f"{app_url}/g/{GUILD}/calc")
+    radio = page.locator('input[name="d1-Coruscant"][value="2"]')
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        if radio.count() and radio.get_attribute("checked") is not None:
+            break
+        time.sleep(0.1)
+    assert radio.get_attribute("checked") is not None, "Alt's 2-star goal should be active"
+    assert not errors, f"console errors: {errors}"
+
+
+@pytest.mark.browser
+def test_planner_plans_set_current(admin_page, app_url, errors):
+    seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
+    add_alt_plan("Alt")
+    page = admin_page
+    page.goto(f"{app_url}/g/{GUILD}/platoons")
+    page.locator(".planet", has_text="Coruscant").wait_for()
+    pop = open_plans_popover(page)
+    alt_row = pop.locator(".plan-row", has_text="Alt")
+    alt_row.locator("button", has_text="Set current").click()
+    alt_row.locator(".badge-cur").wait_for(timeout=8000)
+    page.goto(f"{app_url}/g/{GUILD}/assignments")
+    page.locator("h1", has_text="Assignments").wait_for()
+    line = page.locator(".muted", has_text="Guild plan").first.text_content()
+    assert "Alt" in line, f"assignments should show the new current plan, got {line}"
+    assert not errors, f"console errors: {errors}"
+
+
+@pytest.mark.browser
+def test_planner_plans_delete(admin_page, app_url, errors, accept_dialogs):
+    from server.db import DB
+
+    seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
+    alt_id = add_alt_plan("Alt")
+    page = admin_page
+    page.goto(f"{app_url}/g/{GUILD}/platoons")
+    page.locator(".planet", has_text="Coruscant").wait_for()
+    pop = open_plans_popover(page)
+    alt_row = pop.locator(".plan-row", has_text="Alt")
+    accept_dialogs()
+    alt_row.locator("button", has_text="Delete").click()
+    alt_row.wait_for(state="detached", timeout=8000)
+    db = DB("data/service.db")
+    assert db.get_plan(alt_id, GUILD) is None, "deleted plan should be gone"
     assert not errors, f"console errors: {errors}"
 
 

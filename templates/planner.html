@@ -51,9 +51,11 @@
 {% block header_sub %}
   {% if plan_name %}plan <b>{{ plan_name }}</b>{% if is_draft %} <span class="muted">(draft)</span>{% endif %}{% endif %}
   {% if can_edit %}
+  <button onclick="showPlans()" hx-get="/g/{{ guild_id }}/plans/popover?next={{ request.url.path }}" hx-target="#plans" hx-swap="innerHTML" hx-on::after-request="showPlans()">Plans</button>
   <button onclick="showGen()" hx-get="/g/{{ guild_id }}/platoons/gen?scope=all" hx-target="#gen" hx-swap="innerHTML" hx-on::after-request="showGen()">Generate all</button>
   <button hx-post="/g/{{ guild_id }}/platoons/clear?d={{ day }}" hx-target="#day" hx-swap="innerHTML" hx-confirm="Clear all platoon assignments? The star plan is kept.">Clear all</button>
-  <button hx-post="/g/{{ guild_id }}/platoons/publish?d={{ day }}" hx-target="#day" hx-swap="innerHTML" hx-confirm="Publish the current draft as the guild plan?">Publish to guild</button>
+  <button hx-post="/g/{{ guild_id }}/platoons/publish?d={{ day }}" hx-target="#day" hx-swap="innerHTML"
+    hx-confirm="Publish the current draft as the guild plan?">Publish to guild</button>
   {% endif %}
 {% endblock %}
 
@@ -68,6 +70,7 @@
 </div>
 <div id="picker" class="modal-overlay" style="display:none"></div>
 <div id="gen" class="modal-overlay" style="display:none"></div>
+<div id="plans" class="modal-overlay" style="display:none"></div>
 {% endblock %}
 
 {% block scripts %}
@@ -82,5 +85,7 @@
   function hidePicker() { document.getElementById('picker').style.display = 'none'; }
   function showGen() { document.getElementById('gen').style.display = 'flex'; }
   function hideGen() { document.getElementById('gen').style.display = 'none'; }
+  function showPlans() { document.getElementById('plans').style.display = 'flex'; }
+  function hidePlans() { document.getElementById('plans').style.display = 'none'; }
 </script>
 {% endblock %}

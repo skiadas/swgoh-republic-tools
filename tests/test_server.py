@@ -202,6 +202,47 @@ def test_plan_rejects_bad_payload_and_unknown_plan(tmp_path):
     assert client.post("/g/G1/plans/999/current").status_code == 404
 
 
+def test_plan_management_ui(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _login_admin(client)
+    payload = {"days": {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}}, "fills": {}}
+    pid = client.post("/g/G1/plans", json={"name": "Week 1", "payload": payload}).json()["id"]
+    # popover lists the plan with the current badge; anonymous can read it
+    assert client.get("/g/G1/plans/popover").status_code == 200
+    _login_admin(client)
+    po = client.get("/g/G1/plans/popover")
+    assert "Week 1" in po.text and "badge-cur" in po.text
+    # save-as-new snapshots the current plan, sets the working cookie, keeps current
+    r2 = client.post("/g/G1/plans/save", data={"name": "Week 2"})
+    assert r2.status_code == 200 and "Week 2" in r2.text
+    assert r2.cookies.get("plan_work")
+    plans = client.get("/g/G1/plans").json()["plans"]
+    w2 = next(p for p in plans if p["name"] == "Week 2")
+    assert not w2["isCurrent"], "save-as-new must not change the current plan"
+    assert client.get("/g/G1/plan").json()["plan"]["id"] == pid
+    # switch working plan; editing then targets it, publish updates it in place
+    client.cookies.set("plan_work", str(w2["id"]))
+    client.post("/g/G1/platoons/assign", data={"planet": "Coruscant", "slot": 0, "day": 1, "ac": "123"})
+    assert client.get("/g/G1/plan").json()["plan"]["id"] == pid, "editing a draft must not move the current plan"
+    assert client.post("/g/G1/platoons/publish?d=1").status_code == 200
+    plans = client.get("/g/G1/plans").json()["plans"]
+    assert len(plans) == 2, "publish should update the working plan in place, not create a new one"
+    cur = client.get("/g/G1/plan").json()["plan"]
+    assert cur["id"] == w2["id"] and cur["payload"]["fills"]["Coruscant"]["1"]["0"] == "123"
+    # set current, rename, delete via the popover routes
+    assert client.post(f"/g/G1/plans/{pid}/ui-set-current").status_code == 200
+    assert client.get("/g/G1/plan").json()["plan"]["id"] == pid
+    assert client.post(f"/g/G1/plans/{pid}/ui-rename", data={"name": "Week 1 rev"}).status_code == 200
+    assert any(p["name"] == "Week 1 rev" for p in client.get("/g/G1/plans").json()["plans"])
+    client.cookies.set("plan_work", str(w2["id"]))
+    r = client.post(f"/g/G1/plans/{w2['id']}/ui-delete")
+    assert not r.cookies.get("plan_work"), "deleting the working plan should clear its cookie"
+    assert len(client.get("/g/G1/plans").json()["plans"]) == 1
+    assert client.post("/g/G1/plans/save", data={"name": ""}).status_code == 400
+
+
 def test_assignments_roster(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)

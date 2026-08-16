@@ -1,0 +1,47 @@
+<style>
+  #plans .plan-row { border-bottom: 1px solid #eef1f6; padding: 6px 2px; }
+  #plans .plan-row:last-child { border-bottom: none; }
+  #plans .plan-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  #plans .badge-cur, #plans .badge-edit { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 10px; line-height: 14px; }
+  #plans .badge-cur { background: #dcedc8; color: #2e7d32; }
+  #plans .badge-edit { background: #e7f0fb; color: #1c2541; }
+</style>
+<div class="modal">
+  <header class="mhead"><h2>Plans</h2><button onclick="hidePlans()">&#215;</button></header>
+  <div class="mbody">
+    <div class="muted" style="margin-bottom:10px">Editing: <b>{{ working_name or '—' }}</b>{% if is_draft %} <span class="muted">(draft)</span>{% endif %}</div>
+    <div style="margin-bottom:6px"><b>Save as new plan</b></div>
+    <form hx-post="/g/{{ guild_id }}/plans/save" hx-target="#plans" hx-swap="innerHTML" style="margin-bottom:10px">
+      <input type="hidden" name="next" value="{{ next }}">
+      <input name="name" placeholder="plan name" required>
+      <button>Save as new plan</button>
+    </form>
+    {% if not plans %}
+    <div class="muted" style="font-size:12px">No saved plans yet — publish the current draft or save one above.</div>
+    {% endif %}
+    {% for p in plans %}
+    <div class="plan-row">
+      <b>{{ p.name }}</b>
+      {% if p.is_current %}<span class="badge-cur">current</span>{% endif %}
+      {% if p.is_editing %}<span class="badge-edit">editing</span>{% endif %}
+      <div class="plan-actions">
+        <button hx-post="/g/{{ guild_id }}/plans/working" hx-target="#plans" hx-swap="innerHTML"
+          hx-vals='{"plan_id": {{ p.id }}, "next": "{{ next }}"}'
+          {% if is_draft %}hx-confirm="Discard the current draft and switch to '{{ p.name }}'?"{% endif %}>Edit</button>
+        {% if not p.is_current %}
+        <button hx-post="/g/{{ guild_id }}/plans/{{ p.id }}/ui-set-current" hx-target="#plans" hx-swap="innerHTML"
+          hx-vals='{"next": "{{ next }}"}'}>Set current</button>
+        {% endif %}
+        <form hx-post="/g/{{ guild_id }}/plans/{{ p.id }}/ui-rename" hx-target="#plans" hx-swap="innerHTML" style="display:inline">
+          <input type="hidden" name="next" value="{{ next }}">
+          <input name="name" value="{{ p.name }}" required style="width:90px">
+          <button>Rename</button>
+        </form>
+        <button hx-post="/g/{{ guild_id }}/plans/{{ p.id }}/ui-delete" hx-target="#plans" hx-swap="innerHTML"
+          hx-vals='{"next": "{{ next }}"}'
+          hx-confirm="Delete plan '{{ p.name }}'?">Delete</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>

@@ -39,6 +39,7 @@ from server.jobs import JobRunner, refresh_hour
 from server.nav import guild_nav
 
 GUILD_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+PLAN_COOKIE = "plan_work"
 
 SERVER_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SERVER_DIR.parent
@@ -315,11 +316,22 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(request, f"_report_{view}.html", ctx)
 
     # ---- ROTE star calculator ----
-    def calc_view(guild_id):
-        data = calc.build_data(outdir, guild_id)
+    def working_base(guild_id, request):
+        """The plan a page shows/edits: the in-progress draft, else the admin's
+        selected working plan (per-session cookie), else the current plan."""
         draft = db.get_draft(guild_id)
-        current = db.get_current_plan(guild_id)
-        working = draft or current
+        if draft:
+            return draft
+        wid = request.cookies.get(PLAN_COOKIE) if request is not None else None
+        if wid:
+            p = db.get_plan(wid, guild_id)
+            if p:
+                return p
+        return db.get_current_plan(guild_id)
+
+    def calc_view(guild_id, request):
+        data = calc.build_data(outdir, guild_id)
+        working = working_base(guild_id, request)
         payload = json.loads(working["payload"]) if working else {}
         days_state = payload.get("days") or {}
         deploy = int(payload.get("deployPct") or 100)
@@ -346,7 +358,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}/calc", response_class=HTMLResponse)
     def guild_calc(guild_id: str, request: Request):
         require_guild(guild_id)
-        data, days, _state, deploy, uz, um = calc_view(guild_id)
+        data, days, _state, deploy, uz, um = calc_view(guild_id, request)
         ctx = calc_body_context(guild_id, data, days, deploy, uz, um, can_edit=is_admin(request))
         ctx["guild_name"] = data["guildName"]
         ctx["nav"] = guild_nav("Calculator", guild_id)
@@ -377,7 +389,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         unlock_mandalore = "unlock-mandalore" in form
         compact = "compact" in form
         data = calc.build_data(outdir, guild_id)
-        working = db.get_draft(guild_id) or db.get_current_plan(guild_id)
+        working = working_base(guild_id, request)
         old = json.loads(working["payload"]) if working else {}
         payload = {
             "deployPct": deploy,
@@ -394,7 +406,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}/calc/optimize", response_class=HTMLResponse)
     def calc_optimize_form(guild_id: str, request: Request):
         require_guild(guild_id)
-        data, _days, _state, deploy, unlock_zeffo, unlock_mandalore = calc_view(guild_id)
+        data, _days, _state, deploy, unlock_zeffo, unlock_mandalore = calc_view(guild_id, request)
         return templates.TemplateResponse(
             request,
             "_calc_optimize.html",
@@ -437,7 +449,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 nm: {"goal": str(a["goal"]), "platoons": a["plats"], "cmPct": a["cmPct"]}
                 for nm, a in day_rec["acts"].items()
             }
-        working = db.get_draft(guild_id) or db.get_current_plan(guild_id)
+        working = working_base(guild_id, request)
         old = json.loads(working["payload"]) if working else {}
         payload = {"deployPct": deploy, "unlockZeffo": unlock_zeffo, "unlockMandalore": unlock_mandalore, "days": days, "fills": old.get("fills") or {}}
         db.set_draft(guild_id, (working or {}).get("name") or "Draft", json.dumps(payload))
@@ -460,11 +472,10 @@ def create_app(outdir=None, db_path=None, comlink=None):
         _planner_cache[guild_id] = (stamp, data)
         return data
 
-    def planner_view(guild_id):
+    def planner_view(guild_id, request):
         data = planner_data(guild_id)
         draft = db.get_draft(guild_id)
-        current = db.get_current_plan(guild_id)
-        working = draft or current
+        working = working_base(guild_id, request)
         payload = json.loads(working["payload"]) if working else {}
         return data, payload.get("days") or {}, payload.get("fills") or {}, (working or {}).get("name"), draft is not None
 
@@ -481,8 +492,8 @@ def create_app(outdir=None, db_path=None, comlink=None):
             "can_edit": can_edit,
         }
 
-    def save_draft(guild_id, days_state, fills):
-        working = db.get_draft(guild_id) or db.get_current_plan(guild_id)
+    def save_draft(guild_id, days_state, fills, request):
+        working = working_base(guild_id, request)
         old = json.loads(working["payload"]) if working else {}
         payload = {
             "deployPct": old.get("deployPct", 100),
@@ -496,7 +507,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}/platoons", response_class=HTMLResponse)
     def guild_platoons(guild_id: str, request: Request, day: int = 1):
         require_guild(guild_id)
-        data, days_state, fills, plan_name, is_draft = planner_view(guild_id)
+        data, days_state, fills, plan_name, is_draft = planner_view(guild_id, request)
         d = max(1, min(6, day))
         ctx = planner_day_ctx(guild_id, days_state, fills, d, is_admin(request))
         ctx["guild_name"] = data["guildName"]
@@ -508,14 +519,14 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}/platoons/day", response_class=HTMLResponse)
     def platoons_day(guild_id: str, request: Request, d: int = 1):
         require_guild(guild_id)
-        data, days_state, fills, _n, _d = planner_view(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id, request)
         ctx = planner_day_ctx(guild_id, days_state, fills, max(1, min(6, d)), is_admin(request))
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
     @app.get("/g/{guild_id}/platoons/picker", response_class=HTMLResponse)
     def platoons_picker(guild_id: str, request: Request, planet: str = "", slot: int = 0, day: int = 1):
         require_guild(guild_id)
-        data, days_state, fills, _n, _d = planner_view(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id, request)
         p = next((x for x in data["planets"] if x["name"] == planet), None)
         if p is None:
             raise HTTPException(404, "no such planet")
@@ -542,7 +553,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/g/{guild_id}/platoons/gen", response_class=HTMLResponse)
     def platoons_gen(guild_id: str, request: Request, d: int = 1, scope: str = "all", planet: str = ""):
         require_guild(guild_id)
-        data, days_state, fills, _n, _d = planner_view(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id, request)
         day = max(1, min(6, d))
         if scope not in ("all", "day", "planet"):
             scope = "all"
@@ -566,7 +577,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         slot = int(form.get("slot") or 0)
         day = int(form.get("day") or 1)
         ac = str(form.get("ac") or "")
-        data, days_state, fills, _n, _d = planner_view(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id, request)
         new_fills = {p: {dd: dict(s) for dd, s in by.items()} for p, by in fills.items()}
         by_day = new_fills.setdefault(planet, {})
         slots = by_day.setdefault(str(day), {})
@@ -576,7 +587,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 by_day.pop(str(day), None)
         else:
             slots[str(slot)] = ac
-        save_draft(guild_id, days_state, new_fills)
+        save_draft(guild_id, days_state, new_fills, request)
         ctx = planner_day_ctx(guild_id, days_state, new_fills, day, True)
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
@@ -589,7 +600,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         strategy = str(form.get("gen-strategy") or "strongest")
         policy = str(form.get("gen-policy") or "plan")
         day = max(1, min(6, int(form.get("day") or 1)))
-        data, days_state, fills, _n, _d = planner_view(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id, request)
         if scope_mode == "planet" and planet:
             scope = {"mode": "planet", "day": day, "planet": planet}
         elif scope_mode == "day":
@@ -597,15 +608,15 @@ def create_app(outdir=None, db_path=None, comlink=None):
         else:
             scope = None
         new_fills, _added = planner.generate(data["planets"], data["members"], fills, days_state, scope, strategy, policy)
-        save_draft(guild_id, days_state, new_fills)
+        save_draft(guild_id, days_state, new_fills, request)
         ctx = planner_day_ctx(guild_id, days_state, new_fills, day, True)
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
     @app.post("/g/{guild_id}/platoons/clear", response_class=HTMLResponse)
     def platoons_clear(guild_id: str, request: Request, d: int = 1, _ok: bool = Depends(require_admin)):
         require_guild(guild_id)
-        data, days_state, _fills, _n, _d = planner_view(guild_id)
-        save_draft(guild_id, days_state, {})
+        data, days_state, _fills, _n, _d = planner_view(guild_id, request)
+        save_draft(guild_id, days_state, {}, request)
         ctx = planner_day_ctx(guild_id, days_state, {}, max(1, min(6, d)), True)
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
@@ -615,12 +626,22 @@ def create_app(outdir=None, db_path=None, comlink=None):
         draft = db.get_draft(guild_id)
         if draft is None:
             raise HTTPException(400, "no draft to publish")
-        plan_id = db.create_plan(guild_id, draft["name"] or "Guild plan", draft["payload"], owner_name="admin")
-        db.set_current_plan(guild_id, plan_id)
+        wid = request.cookies.get(PLAN_COOKIE)
+        target = db.get_plan(wid, guild_id) if wid else None
+        if target is None:
+            target = db.get_current_plan(guild_id)
+        if target is not None:
+            db.update_plan(target["id"], guild_id, payload=draft["payload"])
+            db.set_current_plan(guild_id, target["id"])
+        else:
+            plan_id = db.create_plan(guild_id, draft["name"] or "Guild plan", draft["payload"], owner_name="admin")
+            db.set_current_plan(guild_id, plan_id)
         db.clear_draft(guild_id)
-        data, days_state, fills, _n, _d = planner_view(guild_id)
+        data, days_state, fills, _n, _d = planner_view(guild_id, request)
         ctx = planner_day_ctx(guild_id, days_state, fills, max(1, min(6, d)), True)
-        return templates.TemplateResponse(request, "_platoons_day.html", ctx)
+        resp = templates.TemplateResponse(request, "_platoons_day.html", ctx)
+        resp.headers["HX-Refresh"] = "true"
+        return resp
 
     # ---- assignments by member ----
     def assignments_view(guild_id):
@@ -742,6 +763,98 @@ def create_app(outdir=None, db_path=None, comlink=None):
         require_guild(guild_id)
         db.delete_plan(plan_id, guild_id)
         return {"ok": True}
+
+    # ---- plan management (htmx popover for admins) ----
+    def plans_popover_ctx(guild_id, request, base=None, next=""):
+        if base is None:
+            base = working_base(guild_id, request)
+        draft_exists = db.get_draft(guild_id) is not None
+        plans = []
+        for p in db.list_plans(guild_id):
+            plans.append({
+                "id": p["id"],
+                "name": p["name"],
+                "is_current": bool(p["is_current"]),
+                "is_editing": base is not None and not draft_exists and base.get("id") == p["id"],
+            })
+        return {
+            "guild_id": guild_id,
+            "plans": plans,
+            "working_name": (base or {}).get("name"),
+            "is_draft": draft_exists,
+            "next": next,
+        }
+
+    def _plan_cookie(resp, plan_id):
+        resp.set_cookie(
+            PLAN_COOKIE,
+            str(plan_id),
+            max_age=60 * 60 * 24 * 365,
+            httponly=True,
+            samesite="lax",
+            secure=os.environ.get("SWGOH_COOKIE_SECURE", "0") == "1",
+        )
+        return resp
+
+    @app.get("/g/{guild_id}/plans/popover", response_class=HTMLResponse)
+    def plans_popover(guild_id: str, request: Request, next: str = Query(default="")):
+        require_guild(guild_id)
+        return templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))
+
+    @app.post("/g/{guild_id}/plans/working", response_class=HTMLResponse)
+    def plans_working(guild_id: str, request: Request, plan_id: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        if plan_id and db.get_plan(plan_id, guild_id) is None:
+            raise HTTPException(404, "no such plan")
+        db.clear_draft(guild_id)
+        resp = templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))
+        if plan_id:
+            resp = _plan_cookie(resp, plan_id)
+        else:
+            resp.delete_cookie(PLAN_COOKIE)
+        resp.headers["HX-Redirect"] = next or f"/g/{guild_id}/platoons"
+        return resp
+
+    @app.post("/g/{guild_id}/plans/save", response_class=HTMLResponse)
+    def plans_save(guild_id: str, request: Request, name: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        name = name.strip()[:80]
+        if not name:
+            raise HTTPException(400, "plan name required")
+        base = working_base(guild_id, request)
+        payload = json.loads(base["payload"]) if base else {}
+        plan_id = db.create_plan(guild_id, name, json.dumps(payload))
+        db.clear_draft(guild_id)
+        resp = templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, base={"id": plan_id, "name": name}, next=next))
+        return _plan_cookie(resp, plan_id)
+
+    @app.post("/g/{guild_id}/plans/{plan_id}/ui-set-current", response_class=HTMLResponse)
+    def plans_set_current_ui(guild_id: str, plan_id: int, request: Request, next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        if db.get_plan(plan_id, guild_id) is None:
+            raise HTTPException(404, "no such plan")
+        db.set_current_plan(guild_id, plan_id)
+        return templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))
+
+    @app.post("/g/{guild_id}/plans/{plan_id}/ui-rename", response_class=HTMLResponse)
+    def plans_rename_ui(guild_id: str, plan_id: int, request: Request, name: str = Form(default=""), next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        name = name.strip()[:80]
+        if not name:
+            raise HTTPException(400, "plan name required")
+        if db.get_plan(plan_id, guild_id) is None:
+            raise HTTPException(404, "no such plan")
+        db.update_plan(plan_id, guild_id, name=name)
+        return templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))
+
+    @app.post("/g/{guild_id}/plans/{plan_id}/ui-delete", response_class=HTMLResponse)
+    def plans_delete_ui(guild_id: str, plan_id: int, request: Request, next: str = Form(default=""), _ok: bool = Depends(require_admin)):
+        require_guild(guild_id)
+        db.delete_plan(plan_id, guild_id)
+        resp = templates.TemplateResponse(request, "_plans.html", plans_popover_ctx(guild_id, request, next=next))
+        if request.cookies.get(PLAN_COOKIE) == str(plan_id):
+            resp.delete_cookie(PLAN_COOKIE)
+        return resp
 
     # ---------------- admin ----------------
 
