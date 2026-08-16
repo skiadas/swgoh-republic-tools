@@ -28,6 +28,9 @@ ADMIN_COOKIE = "swgoh_admin"
 ADMIN_SALT = "swgoh-admin-v1"
 ADMIN_TTL = 60 * 60 * 24  # 24h admin session
 
+# Discord rejects requests without a User-Agent (urllib's default gets a 403).
+_USER_AGENT = "swgoh-reviewer/1.0"
+
 # SWGOH memberLevel -> role. 1 = unknown/other, 2 = member, 3 = officer,
 # 4 = leader (leaders unique per guild).
 ROLE_MAP = {2: "member", 3: "officer", 4: "leader"}
@@ -102,7 +105,7 @@ def _post_form(url, fields):
         url,
         data=data,
         method="POST",
-        headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": "swgoh-reviewer/1.0"},
+        headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": _USER_AGENT},
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -127,10 +130,14 @@ def exchange_code(code, redirect_uri):
     access = token["access_token"]
     req = urllib.request.Request(
         "https://discord.com/api/v10/users/@me",
-        headers={"Authorization": f"Bearer {access}"},
+        headers={"Authorization": f"Bearer {access}", "User-Agent": _USER_AGENT},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        me = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            me = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")[:300]
+        raise RuntimeError(f"Discord profile fetch {exc.code}: {body or exc.reason}") from exc
     return str(me.get("id")), me.get("username") or str(me.get("id"))
 
 

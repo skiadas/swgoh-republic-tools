@@ -264,6 +264,43 @@ def test_discord_oauth_callback(tmp_path, monkeypatch):
     assert me.status_code == 200 and "Officer" in me.text and "G1" in me.text and "leader" in me.text
 
 
+def test_exchange_code_sends_user_agent(tmp_path, monkeypatch):
+    import json as _json
+    import urllib.request
+
+    from server import auth
+
+    monkeypatch.setenv("SWGOH_DISCORD_CLIENT_ID", "cid")
+    monkeypatch.setenv("SWGOH_DISCORD_CLIENT_SECRET", "csec")
+    seen = []
+
+    class FakeResp:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def read(self):
+            return _json.dumps(self.payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        seen.append(req)
+        if req.full_url.endswith("/oauth2/token"):
+            return FakeResp({"access_token": "tok", "token_type": "Bearer", "expires_in": 604800, "scope": "identify"})
+        return FakeResp({"id": "123456789", "username": "Officer"})
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert auth.exchange_code("code", "http://localhost:8500/auth/discord/callback") == ("123456789", "Officer")
+    assert len(seen) == 2, "token exchange + profile fetch"
+    for req in seen:
+        assert req.get_header("User-agent") == "swgoh-reviewer/1.0", "every Discord call needs a User-Agent (Discord 403s urllib's default)"
+    assert seen[0].get_header("Content-type") == "application/x-www-form-urlencoded"
+
+
 def test_officer_can_edit_guild(tmp_path):
     from server import auth
     from server.db import DB
