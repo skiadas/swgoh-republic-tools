@@ -141,15 +141,15 @@ def seed_plan(days=None, fills=None):
 
 
 def seed_filled_planner(page, app_url):
-    """Open the planner with a Coruscant day-1 plan and assign the first chip."""
+    """Open the planner with a Coruscant day-1 plan and fill the first cell."""
     page.goto(f"{app_url}/g/{GUILD}/platoons")
     page.locator(".planet", has_text="Coruscant").wait_for()
-    chip = page.locator(".planet", has_text="Coruscant").locator("button.chip").first
-    chip.click()
+    cell = page.locator(".planet", has_text="Coruscant").locator(".cell").first
+    cell.locator(".pick-trigger").click()
     page.locator("#picker .modal").wait_for()
     page.locator("#picker .pick-row").first.click()
     page.locator("#picker .modal").wait_for(state="hidden", timeout=8000)
-    return page.locator(".planet", has_text="Coruscant").locator("button.chip").first
+    return page.locator(".planet", has_text="Coruscant").locator(".cell").first
 
 
 # ---------------- admin / nav ----------------
@@ -330,8 +330,8 @@ def test_planner_assign(admin_page, app_url, errors):
     page = admin_page
     page.goto(f"{app_url}/g/{GUILD}/platoons")
     page.locator(".planet", has_text="Coruscant").wait_for()
-    chip = seed_filled_planner(page, app_url)
-    assert chip.text_content() != "—", "chip should show the assigned member"
+    cell = seed_filled_planner(page, app_url)
+    assert cell.locator(".filler").text_content() != "—", "filler should show the assigned member"
     assert not errors, f"console errors: {errors}"
 
 
@@ -356,15 +356,15 @@ def test_planner_day_tab_content_and_highlight(admin_page, app_url, errors):
 def test_planner_picker_clear_fill(admin_page, app_url, errors):
     seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
     page = admin_page
-    chip = seed_filled_planner(page, app_url)
-    assert chip.text_content() != "—"
-    chip.click()
+    cell = seed_filled_planner(page, app_url)
+    assert cell.locator(".filler").text_content() != "—"
+    cell.locator(".pick-trigger").click()
     page.locator("#picker .modal").wait_for()
     clear = page.locator("#picker .pick-row.clear")
     assert clear.count() == 1, "clear option should appear once a fill is set"
     clear.click()
     page.locator("#picker .modal").wait_for(state="hidden", timeout=8000)
-    assert page.locator(".planet .chip .lbl").first.text_content() == "—", "chip should be cleared"
+    assert page.locator(".planet .cell .filler").first.text_content() == "—", "filler should be cleared"
     assert not errors, f"console errors: {errors}"
 
 
@@ -395,12 +395,12 @@ def test_planner_publish_to_guild(admin_page, app_url, errors, accept_dialogs):
 def test_planner_clear_all(admin_page, app_url, errors, accept_dialogs):
     seed_plan(days={"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
     page = admin_page
-    chip = seed_filled_planner(page, app_url)
-    assert chip.text_content() != "—"
+    cell = seed_filled_planner(page, app_url)
+    assert cell.locator(".filler").text_content() != "—"
     accept_dialogs()
     page.click("button:has-text('Clear all')")
     page.locator(".notice", has_text="0 assignments").wait_for(timeout=8000)
-    assert page.locator(".planet .chip .lbl").first.text_content() == "—"
+    assert page.locator(".planet .cell .filler").first.text_content() == "—"
     assert not errors, f"console errors: {errors}"
 
 

@@ -30,16 +30,15 @@
       </h4>
       {% for cell in platoon.cells %}
       <div class="cell {{ 'cur' if cell.cur else ('cov' if cell.covered_ac else 'open') }}{{ ' warn' if cell.warnings }}" title="{{ cell.warnings|join('; ') }}">
-        <div class="u" title="{{ cell.unit }}">{% if cell.baseId in assets %}<img class="ui" src="/assets/{{ cell.baseId }}.webp" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}{{ cell.unit }} <span class="n" title="{{ cell.eligible }} eligible">{{ cell.eligible }}</span></div>
+        <div class="slot">{% if cell.baseId in assets %}<img class="ui" src="/assets/{{ cell.baseId }}.webp" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}</div>
+        <div class="utxt">
+          <div class="uname" title="{{ cell.unit }}"><span class="un">{{ cell.unit }}</span><span class="n" title="{{ cell.eligible }} eligible">{{ cell.eligible }}</span></div>
+          <div class="filler" title="{{ 'today' if cell.covered_day == day else ('since day ' ~ cell.covered_day if cell.covered_ac else cell.eligible ~ ' eligible') }}">{{ member_names.get(cell.covered_ac, '—') if cell.covered_ac else '—' }}</div>
+        </div>
         {% if can_edit %}
-        <button type="button" class="chip{{ ' cur' if cell.cur else (' cov' if cell.covered_ac else '') }}{{ ' warn' if cell.warnings }}"
+        <button type="button" class="pick-trigger" title="Choose a filler for {{ cell.unit }}"
           hx-get="/g/{{ guild_id }}/platoons/picker?planet={{ planet.name|urlencode }}&slot={{ cell.slot }}&day={{ day }}"
-          hx-target="#picker" hx-swap="innerHTML" hx-on::after-request="showPicker()"
-          title="{{ 'today' if cell.covered_day == day else ('since day ' ~ cell.covered_day if cell.covered_ac else cell.eligible ~ ' eligible') }}">
-          <span class="lbl">{{ member_names.get(cell.covered_ac, '—') if cell.covered_ac else '—' }}</span><span class="arr">▾</span>
-        </button>
-        {% else %}
-        <div class="chip readonly"><span class="lbl">{{ member_names.get(cell.covered_ac, '—') if cell.covered_ac else '—' }}</span></div>
+          hx-target="#picker" hx-swap="innerHTML" hx-on::after-request="showPicker()">+</button>
         {% endif %}
       </div>
       {% endfor %}

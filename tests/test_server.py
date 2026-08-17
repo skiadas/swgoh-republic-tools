@@ -625,6 +625,9 @@ def test_planner_day_emits_img_only_for_cached_assets(tmp_path):
     text = client.get("/g/G1/platoons/day", params={"d": 1}).text
     assert f'src="/assets/GENERALSKYWALKER.webp"' in text, "portrait img present when webp cached"
     assert "/assets/DUMMY1.webp" not in text, "no img for unit without a cached portrait"
+    assert '<div class="slot">' in text, "cells reserve the portrait column slot even without a cached webp"
+    assert 'class="pick-trigger"' in text, "editors get a compact picker trigger per cell"
+    assert "<div class=\"filler\"" in text and "—" in text, "unassigned cells show an empty filler line"
 
 
 def test_report_views(tmp_path):
