@@ -86,8 +86,23 @@ doc), `start_comlink.sh` (comlink in Docker).
   after every guild refresh and after saving squad definitions — there is no
   manual button). The calculator/planner/assignments pages render live from
   the caches + plans.
-- **Run the web app locally:** `uv run python server/app.py` (reads
-  `SWGOH_PORT`, default 8000 — the repo's gitignored `.env` sets it to 8500).
+- **Run the web app locally (mirrors the deployed stack):**
+  ```bash
+  docker compose -f compose.yaml -f compose.dev.yaml up -d
+  ```
+  `compose.dev.yaml` is a dev override of the same `compose.yaml` family the box
+  runs: it brings up comlink + the ae2 portrait extractor, builds the repo image,
+  bind-mounts `swgoh_reviewer/ server/ templates/ scripts/ data/`, publishes the
+  app on `SWGOH_PORT` (default 8500), and runs `uvicorn --reload`. Python edits
+  hot-restart automatically; `templates/*.html` are re-read by Jinja on every
+  render (no restart). `server/static/htmx.min.js` is committed, so the
+  bind-mounted `server/` carries it without a container-start fetch (only the
+  image build runs `scripts/fetch-htmx.sh`).
+  Provision a guild via the admin hub (register + "Rebuild game data" pumps
+  caches, ROTE doc, and unit portraits through ae2 into `data/game/assets/`).
+  The minimal fallback `uv run python server/app.py` still works for route tests
+  against an existing `data/`, but is *not* the harness the deployed stack is
+  validated against.
 - **Deploy:** push to `main` → CI builds the image → the box's
   `update-app.sh` cron pulls + recreates the app. See `deploy/DEPLOY.md`.
 
@@ -187,6 +202,13 @@ doc), `start_comlink.sh` (comlink in Docker).
 - **Touch the job runner:** keep the lock reentrant (`threading.RLock`).
 - **Change the ops/TB merge:** ops attach by `linkedConflictId`; platoons are
   numbered by position in `swgoh_rote_operations.json`, not by their id suffix.
+- **Add/change a feature that depends on the real stack (comlink, ae2, game
+  data, portraits):** it must be wired in `compose.yaml`/`compose.dev.yaml`
+  (the deploy family — not a bespoke local script) and exercised by a
+  deterministic test fixture (a seeded asset/cache in a tmp dir or the browser
+  suite's `seed_portraits`), not validated against leftover state in the local
+  `data/`. "Implemented" means the dev harness can show it, not just that a
+  unit test asserts a dict.
 
 ## Decisions & deferred work
 

@@ -8,6 +8,8 @@ locally, in tests, and in the hosted service:
     SWGOH_GAMEDATA_BASE   swgoh-utils/gamedata base URL; set to "" to disable the
                           static game-data source and fall back to comlink
                           (default: https://raw.githubusercontent.com/swgoh-utils/gamedata/main)
+    SWGOH_ASSET_BASE      swgoh-ae2 base URL for the 2D texture extractor
+                          (default: http://ae2:8080 — the compose service)
 """
 
 import os
@@ -29,3 +31,8 @@ def comlink_url() -> str:
 def gamedata_base_url() -> str:
     """Base URL of the static swgoh-utils/gamedata repo ("" disables it)."""
     return os.environ.get("SWGOH_GAMEDATA_BASE", GAMEDATA_BASE)
+
+
+def asset_base_url() -> str:
+    """Base URL of the swgoh-ae2 texture-extractor service ("" disables it)."""
+    return os.environ.get("SWGOH_ASSET_BASE", "http://ae2:8080")

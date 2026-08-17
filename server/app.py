@@ -125,6 +125,11 @@ def create_app(outdir=None, db_path=None, comlink=None):
     app.state.runner = runner
     app.state.comlink = comlink
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    # Unit portraits live in the data volume (game/assets/<baseId>.webp); the
+    # dir may not exist until the first asset pass, so create it up front.
+    assets_mount_dir = outdir / "game" / "assets"
+    assets_mount_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/assets", StaticFiles(directory=str(assets_mount_dir)), name="assets")
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     templates.env.filters["fmt"] = _fmt
     templates.env.filters["pfmt"] = _pfmt
@@ -551,12 +556,20 @@ def create_app(outdir=None, db_path=None, comlink=None):
         active = planner.active_planets(days_state, fills, data["planets"], d)
         models = [planner.planet_render_model(p, data["members"], fills, days_state, d) for p in active]
         names = {str(m["ac"]): m["name"] for m in data["members"]}
+        # baseIds with a cached portrait (game/assets/<baseId>.webp); the template
+        # only emits the <img> when the file actually exists.
+        assets_dir = outdir / "game" / "assets"
+        if assets_dir.is_dir():
+            assets = {p.stem for p in assets_dir.glob("*.webp")}
+        else:
+            assets = set()
         return {
             "guild_id": guild_id,
             "day": d,
             "planets": models,
             "member_names": names,
             "can_edit": can_edit,
+            "assets": assets,
         }
 
     def save_draft(guild_id, days_state, fills, request):

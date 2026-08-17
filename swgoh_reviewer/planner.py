@@ -306,6 +306,7 @@ def planet_render_model(planet, members, fills, days, d):
                 {
                     "slot": s,
                     "unit": sl["n"],
+                    "baseId": sl["b"],
                     "gl": sl.get("gl", 0),
                     "c": sl.get("c", 1),
                     "eligible": len(elig),

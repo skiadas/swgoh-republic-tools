@@ -1,0 +1,42 @@
+# Local dev override. Run with:
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d
+# Everything here mirrors the deployed stack (same compose.yaml family) so the
+# harness can't drift: ae2 + comlink are wired the same way, and the app runs
+# from the repo via bind mounts with uvicorn --reload. Templates are re-read by
+# Jinja on every render (no restart); Python edits hot-restart via --reload.
+# server/static/htmx.min.js is committed, so a bind-mounted server/ carries it
+# without a startup fetch (the Dockerfile still fetches it for the prod image).
+#
+# Companion compose.yaml services (comlink, ae2) are inherited unchanged: the
+# app reaches them by DNS name exactly like prod. comlink is additionally
+# published so the host CLI builders (fetch_guild.py etc., default
+# localhost:3200) still work; ae2 is published for ad-hoc verification.
+services:
+  comlink:
+    ports:
+      - "${COMLINK_PORT:-3200}:3000"
+
+  ae2:
+    ports:
+      - "8081:8080"
+
+  app:
+    image: swgoh-reviewer-dev
+    build: .
+    command: .venv/bin/uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      SWGOH_DATA_ROOT: /srv/app/data
+      SWGOH_APP_SECRET: dev
+      SWGOH_ADMIN_TOKEN: dev
+      SWGOH_NIGHTLY: "0"
+    volumes:
+      - ./swgoh_reviewer:/srv/app/swgoh_reviewer:ro
+      - ./server:/srv/app/server:ro
+      - ./templates:/srv/app/templates:ro
+      - ./scripts:/srv/app/scripts:ro
+      - ./data:/srv/app/data
+    ports:
+      - "${SWGOH_PORT:-8500}:8000"
+    depends_on:
+      - comlink
+      - ae2

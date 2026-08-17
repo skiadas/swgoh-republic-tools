@@ -11,6 +11,14 @@ services:
     mem_limit: 768m
     memswap_limit: 1g
 
+  ae2:
+    image: ghcr.io/swgoh-utils/swgoh-ae2:latest
+    restart: always
+    expose:
+      - "8080"
+    mem_limit: 300m
+    memswap_limit: 512m
+
   app:
     image: ghcr.io/skiadas/swgoh-republic-tools:${SWGOH_IMAGE_TAG:-latest}
     restart: always
@@ -26,6 +34,7 @@ services:
       SWGOH_DISCORD_REDIRECT: ${SWGOH_DISCORD_REDIRECT:-}
       SWGOH_ADMIN_DISCORD_ID: ${SWGOH_ADMIN_DISCORD_ID:-}
       SWGOH_COOKIE_SECURE: "1"
+      SWGOH_ASSET_BASE: http://ae2:8080
     volumes:
       - data:/var/lib/swgoh-reviewer/data
     expose:

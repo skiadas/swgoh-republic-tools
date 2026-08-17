@@ -82,6 +82,49 @@ def clean_state():
         db.delete_plan(p["id"], GUILD)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def seed_portraits():
+    """Placeholder 256px WebPs for every unit the ROTE doc references.
+
+    Real portraits only exist once ae2 has pumped them into data/game/assets;
+    without them the planner template emits no <img> and the "no console errors"
+    assertion in the crawl tests is vacuous. Seeding a tiny WebP per baseId here
+    makes those tests exercise the real /assets mount (200, decoded, rendered)
+    regardless of whether ae2 was run locally. Only baseIds with no real portrait
+    yet are seeded, and those files are removed afterwards so they never mask a
+    later fetch_assets pass.
+    """
+    from PIL import Image
+
+    assets_dir = os.path.join("data", "game", "assets")
+    os.makedirs(assets_dir, exist_ok=True)
+
+    def walk(o, acc):
+        if isinstance(o, dict):
+            b = o.get("baseId")
+            if b:
+                acc.add(b)
+            for v in o.values():
+                walk(v, acc)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v, acc)
+
+    base_ids = set()
+    with open("data/rote/t05D.json") as fh:
+        walk(json.load(fh), base_ids)
+    img = Image.new("RGBA", (256, 256), (80, 120, 200, 255))
+    seeded = []
+    for base_id in sorted(base_ids):
+        dest = os.path.join(assets_dir, f"{base_id}.webp")
+        if not os.path.exists(dest):
+            img.save(dest, format="WEBP")
+            seeded.append(dest)
+    yield
+    for dest in seeded:
+        os.path.exists(dest) and os.remove(dest)
+
+
 def seed_plan(days=None, fills=None):
     from server.db import DB
 

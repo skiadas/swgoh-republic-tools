@@ -158,6 +158,107 @@ def test_roster_stats_gls_come_from_faction_tag(tmp_path):
     assert stats["gls"]["Supreme Leader Kylo Ren"] == 1
 
 
+def test_unit_images_naming_and_missing_asset_grace(tmp_path):
+    from swgoh_reviewer import unit_images
+
+    assert unit_images.asset_name("BOBAFETT", 1) == "charui_bobafett"
+    assert unit_images.asset_name("EXECUTOR", 2) == "shipui_executor"
+    (tmp_path / "game").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "game" / "units.json").write_text('{"BOBAFETT": {"combatType": 1}}')
+    fetched, missed = unit_images.fetch_assets(outdir=tmp_path, base_url="http://127.0.0.1:0", force=True)
+    assert fetched == 0 and missed == 1
+    assert not (tmp_path / "game" / "assets" / "BOBAFETT.webp").exists()
+
+
+def test_unit_images_fetch_writes_webp_from_stub(tmp_path):
+    import base64
+    import http.server
+    import threading
+    from swgoh_reviewer import unit_images
+
+    # 1x1 transparent PNG (valid image payload the stub pretends is the texture).
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(png)))
+            self.end_headers()
+            self.wfile.write(png)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        (tmp_path / "game").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "game" / "units.json").write_text('{"BOBAFETT": {"combatType": 1}}')
+        fetched, missed = unit_images.fetch_assets(
+            outdir=tmp_path, base_url=f"http://127.0.0.1:{server.server_address[1]}", force=True
+        )
+        assert (fetched, missed) == (1, 0)
+        webp = tmp_path / "game" / "assets" / "BOBAFETT.webp"
+        assert webp.exists(), "asset pass writes the thumbbnail"
+        import io
+
+        from PIL import Image
+
+        assert Image.open(io.BytesIO(webp.read_bytes())).format == "WEBP"
+    finally:
+        server.shutdown()
+        thread.join()
+
+
+def test_planner_cells_carry_base_id(tmp_path):
+    from swgoh_reviewer import platoons, planner
+
+    g = tmp_path / "guilds"
+    g.mkdir(exist_ok=True)
+    g.joinpath("G1.summary.json").write_text(json.dumps({"guildName": "Guild One", "members": []}))
+    gu = tmp_path / "game"
+    gu.mkdir(exist_ok=True)
+    gu.joinpath("units.json").write_text(json.dumps({"GENERALSKYWALKER": {"combatType": 1, "categories": []}}))
+    rote = tmp_path / "rote"
+    rote.mkdir(exist_ok=True)
+    rote.joinpath("t05D.json").write_text(
+        json.dumps(
+            {
+                "phases": [
+                    {
+                        "planets": [
+                            {
+                                "name": "Coruscant",
+                                "planetId": "tb3_mixed_phase01_conflict01",
+                                "op": {
+                                    "platoons": [
+                                        {
+                                            "platoon": 1,
+                                            "units": [
+                                                {"baseId": "GENERALSKYWALKER", "name": "General Skywalker"}
+                                                for _ in range(15)
+                                            ],
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+    )
+    data = platoons.build_data(tmp_path, "G1")
+    model = planner.planet_render_model(data["planets"][0], data["members"], {}, {}, 1)
+    cell = model["platoons"][0]["cells"][0]
+    assert cell["baseId"] == "GENERALSKYWALKER"
+    assert cell["unit"] == "General Skywalker"
+
+
 def test_guild_pages_serve(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
@@ -506,6 +607,24 @@ def test_planner_page_and_edit(tmp_path):
     rp2 = client.post("/g/G1/platoons/publish?d=1")
     assert rp2.status_code == 200
     assert client.get("/g/G1/plan").json()["plan"] is not None
+
+
+def test_planner_day_emits_img_only_for_cached_assets(tmp_path):
+    from PIL import Image
+
+    make_data(tmp_path)
+    assets = tmp_path / "game" / "assets"
+    assets.mkdir(parents=True)
+    img = Image.new("RGBA", (2, 2), (255, 0, 0, 255))
+    img.save(assets / "GENERALSKYWALKER.webp", format="WEBP")
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    _login_admin(client)
+    payload = {"deployPct": 100, "unlockZeffo": False, "unlockMandalore": False, "days": {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}}, "fills": {}}
+    client.post("/g/G1/plans", json={"name": "Week 1", "payload": payload})
+    text = client.get("/g/G1/platoons/day", params={"d": 1}).text
+    assert f'src="/assets/GENERALSKYWALKER.webp"' in text, "portrait img present when webp cached"
+    assert "/assets/DUMMY1.webp" not in text, "no img for unit without a cached portrait"
 
 
 def test_report_views(tmp_path):

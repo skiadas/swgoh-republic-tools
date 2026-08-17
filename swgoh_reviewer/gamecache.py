@@ -41,10 +41,14 @@ def build_localization(comlink):
 
 
 def build_units(source, localization, categories):
-    """Project each unit to {combatType, categories, leader, name, factions}.
+    """Project each unit to {combatType, categories, leader, name, factions,
+    thumb}.
 
     `factions` is the sorted, deduped set of localized names of the unit's
-    visible categories; `name` is the localized display name.
+    visible categories; `name` is the localized display name; `thumb` is the
+    game-defined portrait bundle name (thumbnailName, minus the leading
+    "tex."), which is authoritative for ae2 — the naive charui_<baseId> rule
+    misses units like ACKBAR whose bundle is charui_ackbaradmiral.
     """
     out = {}
     for unit in source.get_game_data(include_pve_units=False, items="units").get("units", []):
@@ -61,12 +65,14 @@ def build_units(source, localization, categories):
             if name:
                 factions.append(name)
         name_key = unit.get("nameKey")
+        thumb = unit.get("thumbnailName") or ""
         out[base_id] = {
             "combatType": unit.get("combatType"),
             "categories": cats,
             "leader": bool(unit.get("leaderAbilityRef")) or ("role_leader" in cats),
             "name": localization.get(name_key, base_id) if name_key else base_id,
             "factions": sorted(set(factions)),
+            "thumb": thumb[4:] if thumb.startswith("tex.") else thumb,
         }
     return out
 
@@ -92,17 +98,18 @@ def build_factions(localization, categories):
 def _units_projection_ok(units):
     """Whether a units.json dict carries the current name/factions projection.
 
-    An empty dict or a pre-projection layout (entries without `factions`) is
-    treated as stale so it gets rebuilt rather than silently yielding empty
-    factions.
+    An empty dict or a pre-projection layout (entries without `factions` or
+    without the `thumb` portrait bundle name) is treated as stale so it gets
+    rebuilt rather than silently yielding empty factions / naive asset names.
     """
     if not isinstance(units, dict):
         return False
     for entry in units.values():
         if not isinstance(entry, dict):
             return False
-        return "factions" in entry
-    return False
+        if "factions" not in entry or "thumb" not in entry:
+            return False
+    return True
 
 
 def ensure_caches(source, outdir, refresh=False, names=None):

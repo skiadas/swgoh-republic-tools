@@ -150,6 +150,15 @@ class JobRunner:
                     raise JobError("game-cache build failed")
                 if tb.main([TB_ID, "--outdir", str(self.outdir)]) not in (0, None):
                     raise JobError("ROTE doc build failed")
+                # Unit portraits depend on the (optional) ae2 extractor; a
+                # failure here must not fail the job — the cache tops up next
+                # pass and templates fall back to plain names.
+                try:
+                    from swgoh_reviewer import unit_images
+
+                    unit_images.ensure_images(outdir=self.outdir, progress=print)
+                except Exception as exc:  # noqa: BLE001 - optional
+                    print(f"[game-data] asset pass skipped: {exc}", flush=True)
                 self.db.log_job(None, "game-data", "ok", started_at=start)
                 return {"status": "ok", "kind": "game-data"}
             except Exception as exc:  # noqa: BLE001 - report as job failure
