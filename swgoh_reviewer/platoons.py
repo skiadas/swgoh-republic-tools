@@ -9,35 +9,16 @@ read-only pages.
 """
 
 import json
-import re
 from pathlib import Path
 
 from swgoh_reviewer.ops import load_combat_types
+from swgoh_reviewer.planet_order import PLANET_ORDER, planet_key
 
 TB_ID = "t05D"
 
-# Display order matching the calculator's dark/neutral/light/specials grouping.
-PLANET_ORDER = {"dark": 0, "neutral": 1, "light": 2, "zeffo": 3, "mandalore": 4}
-
 
 def _planet_order(planet_id):
-    m = re.search(r"conflict(\d+)(_bonus)?", planet_id)
-    if not m:
-        return 9
-    idx, bonus = int(m.group(1)), bool(m.group(2))
-    if bonus:
-        if idx == 1:
-            return PLANET_ORDER["zeffo"]
-        if idx == 3:
-            return PLANET_ORDER["mandalore"]
-        return 9
-    if idx == 1:
-        return PLANET_ORDER["light"]
-    if idx == 2:
-        return PLANET_ORDER["dark"]
-    if idx == 3:
-        return PLANET_ORDER["neutral"]
-    return 9
+    return planet_key(planet_id)
 
 
 def load_gl_units(outdir):

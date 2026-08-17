@@ -12,6 +12,7 @@ MAX_UNITS = 10
 def build_roster(planets, members, fills):
     """Per-member roster entries: total, per-day counts, grouped detail."""
     planet_map = {p["name"]: p for p in planets}
+    planet_order = {p["name"]: p.get("order", 9) for p in planets}
     per = {}
     for pn, byday in (fills or {}).items():
         planet = planet_map.get(pn)
@@ -32,7 +33,7 @@ def build_roster(planets, members, fills):
                 r["days"][day] = r["days"].get(day, 0) + 1
                 r["list"].append({"day": day, "planet": pn, "platoon": platoon + 1, "unit": unit})
     for r in per.values():
-        r["detail"] = _detail(r["list"])
+        r["detail"] = _detail(r["list"], planet_order)
     out = []
     for m in members:
         ac = str(m["ac"])
@@ -43,7 +44,7 @@ def build_roster(planets, members, fills):
     return out
 
 
-def _detail(items):
+def _detail(items, planet_order=None):
     by_day = {}
     for it in items:
         by_day.setdefault(it["day"], []).append(it)
@@ -52,13 +53,15 @@ def _detail(items):
         by_planet = {}
         for it in by_day[d]:
             by_planet.setdefault(it["planet"], []).append(it)
+        planets = sorted(by_planet, key=lambda pn: (planet_order.get(pn, 9), pn))
         detail.append(
             {
                 "day": d,
                 "count": len(by_day[d]),
                 "planets": [
                     {"name": pn, "over": len(lst) > MAX_UNITS, "assigns": lst}
-                    for pn, lst in by_planet.items()
+                    for pn in planets
+                    for lst in [by_planet[pn]]
                 ],
             }
         )

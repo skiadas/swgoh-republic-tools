@@ -11,6 +11,8 @@ import json
 import re
 from pathlib import Path
 
+from swgoh_reviewer.planet_order import chain_of
+
 TB_ID = "t05D"
 CM_MULTIPLIER = 50
 
@@ -38,10 +40,9 @@ def build_data(outdir, guild_id, tb_id=TB_ID):
         for p in ph.get("planets", []):
             if not p.get("op"):
                 continue
-            m = re.search(r"conflict(\d+)(_bonus)?", p.get("planetId") or "")
-            if not m:
+            key = chain_of(p.get("planetId") or "")
+            if key is None:
                 continue
-            idx, bonus = int(m.group(1)), bool(m.group(2))
             reward = parse_num((p["op"]["platoons"][0] or {}).get("reward")) if p["op"].get("platoons") else 0
             cm = sum(sum(m2.get("pointsPerWave") or []) for m2 in p.get("missions", [])) * CM_MULTIPLIER
             rec = {
@@ -53,24 +54,19 @@ def build_data(outdir, guild_id, tb_id=TB_ID):
                 "platoonReward": reward,
                 "platoonsTotal": len(p["op"].get("platoons") or []),
             }
-            if bonus:
-                key = "zeffo" if idx == 1 else ("mandalore" if idx == 3 else None)
-                if key and specials[key] is None:
+            if key in ("zeffo", "mandalore"):
+                if specials[key] is None:
                     specials[key] = rec
-            elif idx == 1:
-                chains["light"].append(rec)
-            elif idx == 2:
-                chains["dark"].append(rec)
-            elif idx == 3:
-                chains["neutral"].append(rec)
+            else:
+                chains[key].append(rec)
 
     return {
         "guildName": summary.get("guildName", guild_id),
         "guildGp": guild_gp,
         "chains": [
-            {"id": "light", "name": "Light Side", "planets": chains["light"]},
             {"id": "dark", "name": "Dark Side", "planets": chains["dark"]},
             {"id": "neutral", "name": "Neutral", "planets": chains["neutral"]},
+            {"id": "light", "name": "Light Side", "planets": chains["light"]},
         ],
         "specials": [
             {"id": "zeffo", "name": "Zeffo", "chain": "light", "triggerIndex": 2, "triggerName": "Bracca", "planet": specials["zeffo"]},

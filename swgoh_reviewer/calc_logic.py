@@ -7,26 +7,34 @@ special unlocks. Verified against the JS sanity numbers: 100% CM -> 47 stars
 (no unlocks) / 52 (both specials); 50% -> 43; 30% -> 41.
 """
 
+from swgoh_reviewer.planet_order import PLANET_ORDER
+
 CHAIN_IDS = ["light", "dark", "neutral"]
 SP_CHAIN_IDX = {"zeffo": 0, "mandalore": 2}
-PLANET_ORDER = {"dark": 0, "neutral": 1, "light": 2, "zeffo": 3, "mandalore": 4}
+
 LEVEL_EST_DEFAULT = {1: 30, 2: 20, 3: 10, 4: 5, 5: 0, 6: 0}
 
 
 def phase_groups(data):
-    """Planets grouped by phase (chains + specials), for the optimizer UI."""
+    """Planets grouped by phase (chains + specials), for the optimizer UI.
+
+    Within each phase planets follow the canonical chain order (dark, neutral,
+    light, then specials), so the estimate list matches the day-grid sequence.
+    """
     by = {}
     for ch in data["chains"]:
         for p in ch["planets"]:
-            by.setdefault(p["phase"], []).append(p)
+            by.setdefault(p["phase"], []).append((PLANET_ORDER[ch["id"]], p["name"], p))
     for sp in data["specials"]:
         if sp.get("planet"):
-            by.setdefault(sp["planet"]["phase"], []).append(sp["planet"])
-    return [
-        {"phase": ph, "relic": sorted(by[ph], key=lambda p: p["name"])[0].get("relicReq"),
-         "planets": sorted(by[ph], key=lambda p: p["name"])}
-        for ph in sorted(by)
-    ]
+            by.setdefault(sp["planet"]["phase"], []).append(
+                (PLANET_ORDER[sp["id"]], sp["planet"]["name"], sp["planet"])
+            )
+    out = []
+    for ph in sorted(by):
+        planets = [p for _, _, p in sorted(by[ph])]
+        out.append({"phase": ph, "relic": planets[0].get("relicReq"), "planets": planets})
+    return out
 
 
 def clamp(v, lo, hi):
@@ -185,6 +193,10 @@ def _accessible_planets(data, st, unlock_z, unlock_m):
         done = st["z"] if sp["id"] == "zeffo" else st["m"]
         if unlocked and not done and st["idx"][SP_CHAIN_IDX[sp["id"]]] >= sp["triggerIndex"]:
             acc.append({"p": sp["planet"], "chain": SP_CHAIN_IDX[sp["id"]], "special": sp["id"]})
+    # Canonical display order (dark, neutral, light, then specials) so the
+    # optimizer's per-day result lines and any downstream ordering match the
+    # calculator's day grid.
+    acc.sort(key=lambda a: PLANET_ORDER[a["special"] or CHAIN_IDS[a["chain"]]])
     return acc
 
 

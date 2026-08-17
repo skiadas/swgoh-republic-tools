@@ -568,6 +568,56 @@ def test_calc_optimizer_matches_js_sanity():
     assert optimize(data, all_est(30), False, False)["stars"] == 41
 
 
+def test_planet_order_chain_of():
+    from swgoh_reviewer.planet_order import chain_of, planet_key
+
+    assert [chain_of(f"tb3_mixed_phase0{i}_conflict0{n}{s}") for i in range(1, 7) for n, s in ((1, ""), (2, ""), (3, ""))] == (
+        ["light", "dark", "neutral"] * 6
+    )
+    assert chain_of("tb3_mixed_phase03_conflict01_bonus") == "zeffo"
+    assert chain_of("tb3_mixed_phase04_conflict03_bonus") == "mandalore"
+    assert chain_of("tb3_mixed_phase04_conflict02_bonus") is None
+    assert chain_of("bogus") is None
+    # canonical display keys: Dark, Neutral, Light, then Zeffo, Mandalore
+    assert planet_key("tb3_mixed_phase02_conflict02") < planet_key("tb3_mixed_phase02_conflict03")
+    assert planet_key("tb3_mixed_phase02_conflict03") < planet_key("tb3_mixed_phase02_conflict01")
+    assert planet_key("tb3_mixed_phase03_conflict01_bonus") < planet_key("tb3_mixed_phase04_conflict03_bonus")
+
+
+def test_planet_display_order_consistency():
+    data_root = Path("data")
+    if not (data_root / "rote" / "t05D.json").exists():
+        pytest.skip("real game data not present")
+    from swgoh_reviewer.calc import build_data
+    from swgoh_reviewer.calc_logic import phase_groups
+    from swgoh_reviewer.planet_order import PLANET_ORDER
+
+    data = build_data(data_root, "NW4t0-dBRcG8n-PVhykpKg")
+    # calc payload chains are emitted Dark, Neutral, Light
+    assert [ch["id"] for ch in data["chains"]] == ["dark", "neutral", "light"]
+    # build a name -> chain/special id map from the payload
+    by_name = {
+        p["name"]: ch["id"]
+        for ch in data["chains"]
+        for p in ch["planets"]
+    }
+    for sp in data["specials"]:
+        if sp.get("planet"):
+            by_name[sp["planet"]["name"]] = sp["id"]
+    # phase_groups lists planets in canonical order within each phase
+    for g in phase_groups(data):
+        keys = [PLANET_ORDER[by_name[p["name"]]] for p in g["planets"]]
+        assert keys == sorted(keys), f"phase {g['phase']} planets not in canonical order"
+    # optimizer per-day acts appear in canonical order (Dark, Neutral, Light, specials)
+    from swgoh_reviewer.calc_logic import optimize
+
+    res = optimize(data, {k: 100 for k in by_name}, True, True)
+    for day in res["days"]:
+        order = [PLANET_ORDER[by_name[nm]] for nm in day["acts"]]
+        assert order == sorted(order), f"day {day['day']} optimizer acts not in canonical order"
+
+
+
 def test_calc_planner_notice_without_game_data(tmp_path):
     make_data(tmp_path)
     (tmp_path / "rote" / "t05D.json").unlink()
