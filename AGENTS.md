@@ -27,6 +27,12 @@ doc → `data/rote/t05D.json`), `squad_report.py` (→ `squads.json`),
 
 ## Ground rules
 
+- **Always present completed work as a commit.** When a task or change is
+  finished and verified (tests/lint pass), commit it — one focused commit per
+  logical change, with a concise message matching the repo's style. Do not
+  leave finished work sitting uncommitted for the user to review before
+  committing; present it committed (short, descriptive message; a trimmed PR
+  description is a good guide). Stage only the intended files.
 - **Game data comes from the static repo, not comlink.** `StaticGameData`
   (`swgoh_reviewer/static_gamedata.py`) is a duck-typed drop-in for the
   game-data methods of the comlink-python API, served from the
