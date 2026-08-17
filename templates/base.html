@@ -48,12 +48,15 @@
   <h1>{% block page_title %}{% endblock %}</h1>
   <div class="sub">{% block header_sub %}{% endblock %}</div>
   {% set s = auth_state(request) %}
-  {% if s.enabled %}
+  {% if is_admin(request) or s.enabled %}
   <div class="auth">
-    {% if s.user %}
-    <a href="/auth/me">{{ s.user.username }}</a> · <a href="/auth/logout">Sign out</a>
-    {% else %}
-    <a href="/auth/login">Sign in with Discord</a>
+    {% if is_admin(request) %}<a href="/admin">Admin</a>{% endif %}{% if is_admin(request) and s.enabled %} · {% endif %}
+    {% if s.enabled %}
+      {% if s.user %}
+      <a href="/auth/me">{{ s.user.username }}</a> · <a href="/auth/logout">Sign out</a>
+      {% else %}
+      <a href="/auth/login">Sign in with Discord</a>
+      {% endif %}
     {% endif %}
   </div>
   {% endif %}

@@ -194,6 +194,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return {"enabled": auth.discord_enabled(), "user": session_user(request)}
 
     templates.env.globals["auth_state"] = auth_state
+    templates.env.globals["is_admin"] = is_admin
 
     # ---------------- discord auth ----------------
 
@@ -249,7 +250,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(
             request,
             "index.html",
-            {"guilds": db.list_guilds(), "admin": is_admin(request)},
+            {"guilds": db.list_guilds()},
         )
 
     @app.get("/healthz")
@@ -298,7 +299,6 @@ def create_app(outdir=None, db_path=None, comlink=None):
                 "plan_line": plan_line,
                 "assignments_line": assignments_line,
                 "no_plan": no_plan,
-                "admin": is_admin(request),
                 "officer": officer,
                 "current_squads": g.get("squads_json") or "",
                 "nav": guild_nav("Home", guild_id),

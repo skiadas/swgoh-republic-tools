@@ -309,6 +309,25 @@ def _login_admin(client):
     client.post("/admin/login", data={"token": "secret"})
 
 
+def test_admin_link_on_all_pages(tmp_path):
+    from server import auth
+
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    pages = ["/", "/g/G1", "/g/G1/report", "/g/G1/calc", "/g/G1/platoons", "/g/G1/assignments", "/auth/me"]
+    # anonymous: no Admin link anywhere
+    for path in pages:
+        html = client.get(path).text
+        assert 'href="/admin"' not in html, f"anonymous {path} leaked an admin link"
+    # admin (direct signed cookie): link on every page
+    client.get("/admin/login")
+    client.cookies.set(auth.ADMIN_COOKIE, auth.sign_admin())
+    for path in pages:
+        html = client.get(path).text
+        assert 'href="/admin"' in html, f"admin {path} missing the admin link"
+
+
 def test_plan_crud_is_admin_gated(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
