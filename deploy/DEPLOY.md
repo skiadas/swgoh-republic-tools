@@ -60,12 +60,24 @@ SWGOH_IMAGE_TAG=latest
 SWGOH_DISCORD_CLIENT_ID=
 SWGOH_DISCORD_CLIENT_SECRET=
 SWGOH_DISCORD_REDIRECT=https://reviewer.example.com/auth/discord/callback
+SWGOH_DISCORD_BOT_TOKEN=          # optional: slash-command bot (/plan, /ops)
+SWGOH_DISCORD_PUBLIC_KEY=         # optional: bot's public key (Developer Portal → General Information)
 # SWGOH_GAMEDATA_BASE=            # optional; default = swgoh-utils/gamedata on GitHub (blank disables static game data)
 ```
 
 - Discord: create an app in the Discord Developer Portal → OAuth2 →
   add `SWGOH_DISCORD_REDIRECT` as a redirect URL. Only the `identify` scope is
   used; no bot is needed. Leave the Discord fields blank to run without login.
+- Discord slash-command bot (`/plan`, `/ops`): in the same app, enable
+  **Bot** and copy its token into `SWGOH_DISCORD_BOT_TOKEN`; copy the
+  **Public Key** (General Information) into `SWGOH_DISCORD_PUBLIC_KEY`. Invite
+  the bot to your server with the `applications.commands` scope:
+  `https://discord.com/oauth2/authorize?client_id=<app id>&scope=bot%20applications.commands`.
+  Set the app's **Interactions Endpoint URL** to
+  `https://reviewer.example.com/discord/interactions`. Commands register
+  automatically at startup, guild-scoped in every server the bot is in (so
+  they appear instantly). The bot resolves the guild from the requester's
+  linked ally code, or from an `allycode` option on the command.
 - DNS: add an A record for `SITE_DOMAIN` pointing at the static IP.
 - `SWGOH_IMAGE_TAG` picks which container image to run (default `latest`);
   set it to a git sha or a `v*` tag to pin/roll back (see "Versioning").

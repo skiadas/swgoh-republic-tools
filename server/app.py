@@ -35,7 +35,8 @@ from fastapi.templating import Jinja2Templates
 from swgoh_reviewer import assignments_logic, calc, calc_logic, planner, platoons, report_logic, roster_stats
 from swgoh_reviewer.comlink import DEFAULT_COMLINK
 from swgoh_reviewer.config import data_root
-from server import auth
+from swgoh_reviewer.discord_bot import handle_interaction
+from server import auth, discord
 from server.db import DB
 from server.jobs import JobRunner, refresh_hour
 from server.nav import guild_nav
@@ -107,6 +108,11 @@ def create_app(outdir=None, db_path=None, comlink=None):
     async def lifespan(app):
         nonlocal thread
         db.mark_running_interrupted()
+        if discord.enabled():
+            try:
+                discord.register_commands()
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger("uvicorn.error").warning("discord command registration failed: %s", exc)
         if os.environ.get("SWGOH_NIGHTLY", "0") == "1":
             thread = threading.Thread(
                 target=runner.nightly_loop,
@@ -944,6 +950,18 @@ def create_app(outdir=None, db_path=None, comlink=None):
         if request.cookies.get(PLAN_COOKIE) == str(plan_id):
             resp.delete_cookie(PLAN_COOKIE)
         return resp
+
+    # ---------------- discord bot ----------------
+
+    @app.post("/discord/interactions")
+    async def discord_interactions(request: Request):
+        if not discord.enabled():
+            raise HTTPException(404, "discord bot not configured")
+        body = await request.body()
+        if not discord.verify(body, request.headers.get("X-Signature-Ed25519", ""), request.headers.get("X-Signature-Timestamp", "")):
+            raise HTTPException(401, "invalid interaction signature")
+        payload = json.loads(body)
+        return handle_interaction(payload, outdir, db)
 
     # ---------------- admin ----------------
 

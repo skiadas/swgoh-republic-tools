@@ -328,6 +328,135 @@ def test_admin_link_on_all_pages(tmp_path):
         assert 'href="/admin"' in html, f"admin {path} missing the admin link"
 
 
+# ---------------- discord bot ----------------
+
+_TS = "1712345678"
+
+
+def make_bot_client(monkeypatch, tmp_path):
+    import nacl.signing
+
+    make_data(tmp_path)
+    sk = nacl.signing.SigningKey.generate()
+    monkeypatch.setenv("SWGOH_DISCORD_BOT_TOKEN", "bot.appid.secret")
+    monkeypatch.setenv("SWGOH_DISCORD_PUBLIC_KEY", bytes(sk.verify_key).hex())
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    return client, sk
+
+
+def signed_post(client, sk, payload):
+    body = json.dumps(payload).encode()
+    sig = sk.sign(_TS.encode() + body).signature.hex()
+    return client.post(
+        "/discord/interactions",
+        content=body,
+        headers={"X-Signature-Ed25519": sig, "X-Signature-Timestamp": _TS},
+    )
+
+
+def interaction(name, user_id="d1", options=None, guild="srv"):
+    data = {"name": name, "options": options or []}
+    return {
+        "type": 2,
+        "id": "1",
+        "application_id": "app",
+        "guild_id": guild,
+        "member": {"user": {"id": user_id}},
+        "data": data,
+    }
+
+
+def seed_plan_db(tmp_path, days, fills=None):
+    from server.db import DB
+
+    payload = {
+        "deployPct": 100,
+        "unlockZeffo": False,
+        "unlockMandalore": False,
+        "days": days,
+        "fills": fills or {},
+    }
+    DB(tmp_path / "service.db").create_plan("G1", "Week 1", json.dumps(payload))
+
+
+def test_discord_interactions_disabled(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    r = client.post("/discord/interactions", content=b"{}")
+    assert r.status_code == 404
+
+
+def test_discord_interactions_ping_and_bad_signature(monkeypatch, tmp_path):
+    client, sk = make_bot_client(monkeypatch, tmp_path)
+    r = signed_post(client, sk, {"type": 1})
+    assert r.status_code == 200 and r.json() == {"type": 1}
+    # forged signature rejected
+    r2 = client.post(
+        "/discord/interactions",
+        content=b'{"type": 1}',
+        headers={"X-Signature-Ed25519": "00" * 64, "X-Signature-Timestamp": _TS},
+    )
+    assert r2.status_code == 401
+
+
+def test_discord_plan_unregistered_asks_for_allycode(monkeypatch, tmp_path):
+    client, sk = make_bot_client(monkeypatch, tmp_path)
+    r = signed_post(client, sk, interaction("plan", user_id="nobody"))
+    assert r.status_code == 200
+    assert "allycode" in r.json()["data"]["content"]
+    r2 = signed_post(client, sk, interaction("plan", user_id="nobody", options=[{"name": "allycode", "value": "999"}]))
+    assert "999" in r2.json()["data"]["content"] and "isn't in any registered guild" in r2.json()["data"]["content"]
+
+
+def test_discord_plan_shows_plan(monkeypatch, tmp_path):
+    client, sk = make_bot_client(monkeypatch, tmp_path)
+    seed_plan_db(tmp_path, {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
+    r = signed_post(client, sk, interaction("plan", options=[{"name": "allycode", "value": "123"}]))
+    assert r.status_code == 200
+    text = r.json()["data"]["content"]
+    assert "Guild One" in text and "Day 1" in text and "Coruscant" in text and "minCM" in text
+    assert "★" in text
+    # day out of range
+    r2 = signed_post(client, sk, interaction("plan", options=[{"name": "allycode", "value": "123"}, {"name": "day", "value": 7}]))
+    assert "Day must be 1" in r2.json()["data"]["content"]
+    # linked requester resolves to their guild without an allycode option
+    from server.db import DB
+
+    DB(tmp_path / "service.db").set_discord_link("d1", "123")
+    r3 = signed_post(client, sk, interaction("plan", user_id="d1", options=[{"name": "day", "value": 1}]))
+    assert "Day 1" in r3.json()["data"]["content"]
+
+
+def test_discord_ops_shows_assignments(monkeypatch, tmp_path):
+    client, sk = make_bot_client(monkeypatch, tmp_path)
+    # no plan yet
+    r0 = signed_post(client, sk, interaction("ops", options=[{"name": "allycode", "value": "123"}]))
+    assert r0.json()["data"]["content"] == "No plan has been published for this guild yet."
+    seed_plan_db(tmp_path, {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}}, fills={"Coruscant": {"1": {"0": "123"}}})
+    r = signed_post(client, sk, interaction("ops", options=[{"name": "allycode", "value": "123"}]))
+    assert r.status_code == 200
+    text = r.json()["data"]["content"]
+    assert "Guild One" in text and "Coruscant" in text and "General Skywalker" in text
+    # unknown ally code
+    r2 = signed_post(client, sk, interaction("ops", options=[{"name": "allycode", "value": "999"}]))
+    assert "999" in r2.json()["data"]["content"]
+
+
+def test_discord_resolve_guild(tmp_path):
+    from swgoh_reviewer.discord_bot import resolve_guild
+    from server.db import DB
+
+    make_data(tmp_path)
+    db = DB(tmp_path / "service.db")
+    db.upsert_guild("G1", name="Guild One")
+    assert resolve_guild(tmp_path, db, allycode="123") == "G1"
+    assert resolve_guild(tmp_path, db, allycode="999") is None
+    assert resolve_guild(tmp_path, db, discord_id="nobody") is None
+    db.set_discord_link("d1", "123")
+    assert resolve_guild(tmp_path, db, discord_id="d1") == "G1"
+
+
 def test_plan_crud_is_admin_gated(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)

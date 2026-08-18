@@ -29,6 +29,8 @@ services:
       SWGOH_APP_SECRET: dev
       SWGOH_ADMIN_TOKEN: dev
       SWGOH_NIGHTLY: "0"
+      SWGOH_DISCORD_BOT_TOKEN: ${SWGOH_DISCORD_BOT_TOKEN:-}
+      SWGOH_DISCORD_PUBLIC_KEY: ${SWGOH_DISCORD_PUBLIC_KEY:-}
     volumes:
       - ./swgoh_reviewer:/srv/app/swgoh_reviewer:ro
       - ./server:/srv/app/server:ro
