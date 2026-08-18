@@ -461,6 +461,44 @@ def test_discord_resolve_guild(tmp_path):
     assert resolve_guild(tmp_path, db, discord_id="d1") == "G1"
 
 
+def test_discord_app_id_parsing(monkeypatch):
+    import base64
+
+    from server import discord
+
+    numeric = "123456789012345678"
+    legacy = base64.urlsafe_b64encode(numeric.encode()).decode().rstrip("=")
+    monkeypatch.setenv("SWGOH_DISCORD_BOT_TOKEN", f"{legacy}.abc.xyz")
+    assert discord.app_id() == numeric
+    monkeypatch.setenv("SWGOH_DISCORD_BOT_TOKEN", "bot.123456789012345678.secret")
+    assert discord.app_id() == "123456789012345678"
+    monkeypatch.setenv("SWGOH_DISCORD_BOT_TOKEN", "garbage")
+    assert discord.app_id() == "garbage"
+    monkeypatch.delenv("SWGOH_DISCORD_BOT_TOKEN", raising=False)
+    assert discord.app_id() == ""
+
+
+def test_discord_register_commands_uses_decoded_app_id(monkeypatch):
+    """The registration PUT must carry the numeric app id, never the token
+    prefix (Discord rejects the base64 form with 400)."""
+    import base64
+
+    from server import discord
+
+    numeric = "123456789012345678"
+    legacy = base64.urlsafe_b64encode(numeric.encode()).decode().rstrip("=")
+    monkeypatch.setenv("SWGOH_DISCORD_BOT_TOKEN", f"{legacy}.abc.xyz")
+    monkeypatch.setenv("SWGOH_DISCORD_PUBLIC_KEY", "a0" * 32)
+    calls = []
+    monkeypatch.setattr(discord, "_request", lambda method, path, token, body=None: (calls.append((method, path)) or []))
+    discord.register_commands()
+    assert ("PUT", f"/applications/{numeric}/commands") in calls
+    monkeypatch.setattr(discord, "bot_guilds", lambda token: ["g42"])
+    calls.clear()
+    discord.register_commands()
+    assert ("PUT", f"/applications/{numeric}/guilds/g42/commands") in calls
+
+
 def test_plan_crud_is_admin_gated(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)

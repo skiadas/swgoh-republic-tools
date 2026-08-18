@@ -12,6 +12,7 @@ Requires `SWGOH_DISCORD_BOT_TOKEN` and `SWGOH_DISCORD_PUBLIC_KEY`; without
 them the route is disabled (404).
 """
 
+import base64
 import json
 import logging
 import os
@@ -58,9 +59,24 @@ def enabled():
 
 
 def app_id():
-    """Application id from the bot token (newer tokens are `<id>.<secret>`)."""
+    """Application id from the bot token.
+
+    Newer tokens are `bot.<id>.<secret>`. Classic tokens prefix the numeric
+    id as unpadded base64url (e.g. `MTIzNDU...`); Discord wants the numeric
+    snowflake in API paths, so the prefix must be decoded.
+    """
     parts = bot_token().split(".")
-    return parts[1] if len(parts) >= 3 and parts[0] == "bot" else (parts[0] if parts else "")
+    if len(parts) >= 3 and parts[0] == "bot":
+        return parts[1]
+    token_id = parts[0] if parts else ""
+    if token_id.isdigit():
+        return token_id
+    try:
+        pad = "=" * (-len(token_id) % 4)
+        decoded = base64.urlsafe_b64decode(token_id + pad).decode()
+        return decoded if decoded.isdigit() else token_id
+    except Exception:  # noqa: BLE001
+        return token_id
 
 
 def _request(method, path, token, body=None):
