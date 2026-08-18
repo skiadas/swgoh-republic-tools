@@ -9,6 +9,11 @@ Guild resolution is requester-driven: a Discord user known to the system via
 their `discord_links` entry resolves to the guild containing their player;
 otherwise the command must carry an ally code and the guild is resolved from
 that player's roster membership.
+
+All responses are ephemeral (visible only to the invoking user), and `/ops`
+— which reads every roster in the guild to render assignments — answers
+with a deferred `type 5` ACK and posts the rendered message via the
+follow-up webhook so the slow work never holds Discord's 3-second window.
 """
 
 import json
@@ -17,6 +22,8 @@ from pathlib import Path
 from swgoh_reviewer import assignments_logic, calc, calc_logic, platoons
 
 DAYS = range(1, 7)
+
+EPHEMERAL = 64
 
 
 def int_or(value):
@@ -125,15 +132,18 @@ def format_ops(outdir, db, guild_id, allycode):
 
 
 def handle_interaction(payload, outdir, db):
-    """Dispatch a verified interaction payload to a Discord response dict.
+    """Dispatch a verified interaction payload.
 
-    `payload` is the JSON body Discord posted; returns the JSON-serializable
-    response for `type 4` channel messages (or `type 1` for pings).
+    Returns `(response, followup)`: `response` is the JSON-serializable body
+    of the ACK (`type 1` pings, `type 4` ephemeral messages, or `type 5`
+    deferrals); `followup` is `None` or a zero-arg callable that renders the
+    message a deferred response posts via the follow-up webhook (kept lazy
+    so slow work never holds the 3-second ACK window).
     """
     if payload.get("type") == 1:
-        return {"type": 1}
+        return {"type": 1}, None
     if payload.get("type") != 2:
-        return {"type": 4, "data": {"content": "Unsupported interaction."}}
+        return _message("Unsupported interaction."), None
     data = payload.get("data") or {}
     user = (payload.get("member") or {}).get("user") or payload.get("user") or {}
     discord_id = str(user.get("id")) if user.get("id") else None
@@ -143,11 +153,11 @@ def handle_interaction(payload, outdir, db):
         return _cmd_plan(outdir, db, discord_id, opts)
     if name == "ops":
         return _cmd_ops(outdir, db, discord_id, opts)
-    return {"type": 4, "data": {"content": f"Unknown command: {name}."}}
+    return _message(f"Unknown command: {name}."), None
 
 
 def _message(text):
-    return {"type": 4, "data": {"content": text}}
+    return {"type": 4, "data": {"content": text, "flags": EPHEMERAL}}
 
 
 def _cmd_plan(outdir, db, discord_id, opts):
@@ -156,10 +166,10 @@ def _cmd_plan(outdir, db, discord_id, opts):
     if guild_id is None:
         hint = "Register your ally code with an admin, or pass one: `/plan allycode:123456789`."
         if allycode:
-            return _message(f"Ally code {allycode} isn't in any registered guild. " + hint)
-        return _message("You're not linked to a player yet. " + hint)
+            return _message(f"Ally code {allycode} isn't in any registered guild. " + hint), None
+        return _message("You're not linked to a player yet. " + hint), None
     day = opts.get("day")
-    return _message(format_plan(outdir, db, guild_id, day=int(day) if day is not None else None))
+    return _message(format_plan(outdir, db, guild_id, day=int(day) if day is not None else None)), None
 
 
 def _cmd_ops(outdir, db, discord_id, opts):
@@ -169,8 +179,10 @@ def _cmd_ops(outdir, db, discord_id, opts):
         if link:
             allycode = link.get("allycode")
     if allycode is None:
-        return _message("You're not linked to a player yet. Register your ally code with an admin, or pass one: `/ops allycode:123456789`.")
+        return _message("You're not linked to a player yet. Register your ally code with an admin, or pass one: `/ops allycode:123456789`."), None
     guild_id = resolve_guild(outdir, db, None, allycode)
     if guild_id is None:
-        return _message(f"Ally code {allycode} isn't in any registered guild.")
-    return _message(format_ops(outdir, db, guild_id, allycode))
+        return _message(f"Ally code {allycode} isn't in any registered guild."), None
+    # Rendering ops reads every roster in the guild: defer the ACK and post
+    # the rendered message via the follow-up webhook after the response.
+    return {"type": 5, "data": {"flags": EPHEMERAL}}, lambda: format_ops(outdir, db, guild_id, allycode)

@@ -101,6 +101,28 @@ def register_commands():
         log.info("discord: registered %d global commands (no servers yet)", len(_COMMANDS))
 
 
+def send_followup(token, application_id, interaction_token, content):
+    """Post a follow-up message to a deferred interaction (ephemeral)."""
+    _request("POST", f"/webhooks/{application_id}/{interaction_token}", token, {"content": content, "flags": 64})
+
+
+def execute_followup(token, application_id, interaction_token, render):
+    """Render a deferred interaction's content and post it as a follow-up.
+
+    Runs in a background task after the ACK; a render failure degrades to a
+    generic error message rather than leaving the user staring at "thinking".
+    """
+    try:
+        content = render()
+    except Exception:  # noqa: BLE001
+        log.exception("discord: follow-up render failed")
+        content = "Something went wrong rendering that — try again in a moment."
+    try:
+        send_followup(token, application_id, interaction_token, content)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("discord: follow-up send failed: %s", exc)
+
+
 def verify(payload: bytes, signature: str, timestamp: str) -> bool:
     """True iff the Ed25519 signature over `timestamp + payload` is valid."""
     if not enabled() or not signature or not timestamp:

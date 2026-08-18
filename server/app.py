@@ -31,6 +31,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
 
 from swgoh_reviewer import assignments_logic, calc, calc_logic, planner, platoons, report_logic, roster_stats
 from swgoh_reviewer.comlink import DEFAULT_COMLINK
@@ -961,7 +962,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
         if not discord.verify(body, request.headers.get("X-Signature-Ed25519", ""), request.headers.get("X-Signature-Timestamp", "")):
             raise HTTPException(401, "invalid interaction signature")
         payload = json.loads(body)
-        return handle_interaction(payload, outdir, db)
+        resp, followup = handle_interaction(payload, outdir, db)
+        if followup is not None:
+            app_id = payload.get("application_id") or discord.app_id()
+            itoken = payload.get("token", "")
+            background = BackgroundTask(discord.execute_followup, discord.bot_token(), app_id, itoken, followup)
+            return Response(content=json.dumps(resp), media_type="application/json", background=background)
+        return resp
 
     # ---------------- admin ----------------
 

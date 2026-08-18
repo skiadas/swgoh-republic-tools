@@ -414,7 +414,9 @@ def test_discord_plan_shows_plan(monkeypatch, tmp_path):
     seed_plan_db(tmp_path, {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}})
     r = signed_post(client, sk, interaction("plan", options=[{"name": "allycode", "value": "123"}]))
     assert r.status_code == 200
-    text = r.json()["data"]["content"]
+    body = r.json()
+    assert body["type"] == 4 and body["data"]["flags"] == 64
+    text = body["data"]["content"]
     assert "Guild One" in text and "Day 1" in text and "Coruscant" in text and "minCM" in text
     assert "★" in text
     # day out of range
@@ -428,19 +430,21 @@ def test_discord_plan_shows_plan(monkeypatch, tmp_path):
     assert "Day 1" in r3.json()["data"]["content"]
 
 
-def test_discord_ops_shows_assignments(monkeypatch, tmp_path):
+def test_discord_ops_defers_and_follows_up(monkeypatch, tmp_path):
     client, sk = make_bot_client(monkeypatch, tmp_path)
-    # no plan yet
+    sent = {}
+    monkeypatch.setattr("server.discord.send_followup", lambda token, appid, itoken, content: sent.update(content=content))
+    # no plan yet: still deferred, error arrives via the follow-up
     r0 = signed_post(client, sk, interaction("ops", options=[{"name": "allycode", "value": "123"}]))
-    assert r0.json()["data"]["content"] == "No plan has been published for this guild yet."
+    assert r0.json() == {"type": 5, "data": {"flags": 64}}
+    assert sent["content"] == "No plan has been published for this guild yet."
     seed_plan_db(tmp_path, {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}}, fills={"Coruscant": {"1": {"0": "123"}}})
     r = signed_post(client, sk, interaction("ops", options=[{"name": "allycode", "value": "123"}]))
-    assert r.status_code == 200
-    text = r.json()["data"]["content"]
-    assert "Guild One" in text and "Coruscant" in text and "General Skywalker" in text
-    # unknown ally code
+    assert r.status_code == 200 and r.json() == {"type": 5, "data": {"flags": 64}}
+    assert "Guild One" in sent["content"] and "Coruscant" in sent["content"] and "General Skywalker" in sent["content"]
+    # unknown ally code fails fast with a direct message (no deferral)
     r2 = signed_post(client, sk, interaction("ops", options=[{"name": "allycode", "value": "999"}]))
-    assert "999" in r2.json()["data"]["content"]
+    assert "999" in r2.json()["data"]["content"] and r2.json()["data"]["flags"] == 64
 
 
 def test_discord_resolve_guild(tmp_path):
