@@ -7,6 +7,11 @@
 <p><a href="/">← Back to home</a></p>
 {% if session %}
 <p>Signed in as <b>{{ session.username }}</b> (discord id <code>{{ session.discord_id }}</code>).</p>
+{% if link %}
+<p>Linked player: <b>{{ link.player or 'unknown' }}</b> (ally code <code>{{ link.allycode }}</code>){% if link.guild_name %} — {{ link.guild_name }}{% endif %}{% if link.role %} ({{ link.role }}){% endif %}.</p>
+{% else %}
+<p>No linked player. Share your discord id above with an admin to link an ally code.</p>
+{% endif %}
 {% if role_links %}
 <p>You can edit these guilds:</p>
 <ul>
@@ -14,9 +19,8 @@
   <li><a href="/g/{{ r.guild_id }}">{{ r.name }}</a> ({{ r.role }})</li>
   {% endfor %}
 </ul>
-{% else %}
-<p>No linked player. Share your discord id above with an admin to link an ally code.</p>
 {% endif %}
+<p>The Discord bot's <code>/plan</code> and <code>/ops</code> commands use the same link.</p>
 <p><a href="/auth/logout">Sign out</a></p>
 {% else %}
 <p>Not signed in.</p>

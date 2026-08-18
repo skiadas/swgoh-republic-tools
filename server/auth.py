@@ -148,15 +148,22 @@ def int_or(value):
         return value
 
 
-def roles_for(db, outdir, discord_id):
-    """Map {guild_id: role} for a discord user from their linked player's roster row."""
-    link = db.get_discord_link(discord_id)
+def linked_player(db, outdir, discord_id):
+    """The player a Discord user is linked to, or None.
+
+    Returns `{allycode, player, guild_id, guild_name, role}` from the first
+    registered guild whose roster contains the linked ally code; when the
+    code is linked but matches no roster anymore the player fields are empty.
+    """
+    if discord_id is None:
+        return None
+    link = db.get_discord_link(str(discord_id))
     if not link or not link.get("allycode"):
-        return {}
+        return None
     ally = int_or(link["allycode"])
-    roles = {}
+    out = {"allycode": ally, "player": None, "guild_id": None, "guild_name": None, "role": None}
     for g in db.list_guilds():
-        p = (outdir / "guilds" / f"{g['id']}.json")
+        p = outdir / "guilds" / f"{g['id']}.json"
         if not p.exists():
             continue
         try:
@@ -165,11 +172,24 @@ def roles_for(db, outdir, discord_id):
             continue
         for member in manifest.get("members", []):
             if int_or(member.get("allyCode")) == ally:
-                role = ROLE_MAP.get(member.get("memberLevel"))
-                if role:
-                    roles[g["id"]] = role
-                break
-    return roles
+                out.update(
+                    {
+                        "player": member.get("playerName"),
+                        "guild_id": g["id"],
+                        "guild_name": manifest.get("guildName") or g["id"],
+                        "role": ROLE_MAP.get(member.get("memberLevel")),
+                    }
+                )
+                return out
+    return out
+
+
+def roles_for(db, outdir, discord_id):
+    """Map {guild_id: role} for a discord user from their linked player's roster row."""
+    lp = linked_player(db, outdir, discord_id)
+    if not lp or not lp["guild_id"] or not lp["role"]:
+        return {}
+    return {lp["guild_id"]: lp["role"]}
 
 
 def is_officer(roles, guild_id):

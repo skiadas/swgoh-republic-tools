@@ -499,6 +499,47 @@ def test_discord_register_commands_uses_decoded_app_id(monkeypatch):
     assert ("PUT", f"/applications/{numeric}/guilds/g42/commands") in calls
 
 
+def test_linked_player_and_roles(tmp_path):
+    from server.auth import linked_player, roles_for
+    from server.db import DB
+
+    make_data(tmp_path)
+    db = DB(tmp_path / "service.db")
+    db.upsert_guild("G1", name="Guild One")
+    assert linked_player(db, tmp_path, "d1") is None
+    db.set_discord_link("d1", "123")
+    lp = linked_player(db, tmp_path, "d1")
+    assert lp["allycode"] == 123 and lp["player"] == "P" and lp["guild_id"] == "G1"
+    assert lp["guild_name"] == "Guild One" and lp["role"] == "leader"
+    assert roles_for(db, tmp_path, "d1") == {"G1": "leader"}
+    db.set_discord_link("d1", "999")
+    assert linked_player(db, tmp_path, "d1")["player"] is None
+    assert roles_for(db, tmp_path, "d1") == {}
+
+
+def test_header_and_profile_show_link_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("SWGOH_DISCORD_CLIENT_ID", "x")
+    monkeypatch.setenv("SWGOH_DISCORD_CLIENT_SECRET", "y")
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    from server import auth
+
+    client.cookies.set(auth.SESSION_COOKIE, auth.sign_session({"discord_id": "d1", "username": "Dudu"}))
+    assert "not linked" in client.get("/g/G1").text
+    assert "No linked player" in client.get("/auth/me").text
+    from server.db import DB
+
+    DB(tmp_path / "service.db").set_discord_link("d1", "123")
+    page = client.get("/g/G1").text
+    assert "leader · P (123)" in page and "not linked" not in page
+    me = client.get("/auth/me").text
+    assert "Linked player:" in me and "Guild One" in me
+    client.cookies.set(auth.ADMIN_COOKIE, auth.sign_admin())
+    admin = client.get("/admin").text
+    assert "<td>P</td>" in admin and "<td>Guild One</td>" in admin and "<td>leader</td>" in admin
+
+
 def test_plan_crud_is_admin_gated(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)

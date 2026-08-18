@@ -197,8 +197,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return auth.is_officer(roles, guild_id)
 
     def auth_state(request):
-        """For the shared header: is Discord login enabled, and who is signed in."""
-        return {"enabled": auth.discord_enabled(), "user": session_user(request)}
+        """For the shared header: is Discord login enabled, who is signed in,
+        and which player (if any) their account is linked to."""
+        state = {"enabled": auth.discord_enabled(), "user": session_user(request)}
+        user = state["user"]
+        if user and user.get("discord_id"):
+            state["link"] = auth.linked_player(db, outdir, user["discord_id"])
+        return state
 
     templates.env.globals["auth_state"] = auth_state
     templates.env.globals["is_admin"] = is_admin
@@ -241,7 +246,11 @@ def create_app(outdir=None, db_path=None, comlink=None):
     @app.get("/auth/me", response_class=HTMLResponse)
     def auth_me(request: Request):
         session = session_user(request)
-        roles = auth.roles_for(db, outdir, session["discord_id"]) if session else {}
+        link = None
+        roles = {}
+        if session and session.get("discord_id"):
+            link = auth.linked_player(db, outdir, session["discord_id"])
+            roles = auth.roles_for(db, outdir, session["discord_id"])
         role_links = []
         for gid, role in roles.items():
             g = db.get_guild(gid)
@@ -249,7 +258,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return templates.TemplateResponse(
             request,
             "auth_me.html",
-            {"session": session, "roles": roles, "role_links": role_links, "discord_on": auth.discord_enabled()},
+            {"session": session, "link": link, "roles": roles, "role_links": role_links, "discord_on": auth.discord_enabled()},
         )
 
     @app.get("/", response_class=HTMLResponse)
@@ -1012,12 +1021,16 @@ def create_app(outdir=None, db_path=None, comlink=None):
         for g in db.list_guilds():
             job = db.latest_job(g["id"])
             guilds.append({**g, "last_job_status": job["status"] if job else None})
+        links = []
+        for l in db.list_discord_links():
+            lp = auth.linked_player(db, outdir, l["discord_id"])
+            links.append({**l, **({} if lp is None else {"player": lp["player"], "guild_name": lp["guild_name"], "role": lp["role"]})})
         return templates.TemplateResponse(
             request,
             "admin.html",
             {
                 "guilds": guilds,
-                "links": db.list_discord_links(),
+                "links": links,
                 "recent_jobs": db.recent_jobs(12),
                 "linked": linked,
                 "linked_ally": linked_ally,

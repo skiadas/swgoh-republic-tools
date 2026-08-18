@@ -55,8 +55,8 @@
 
 {% if links %}
 <h2>Discord links</h2>
-<table><tr><th>discord id</th><th>allycode</th><th>linked by</th></tr>
-{% for l in links %}<tr><td>{{ l.discord_id }}</td><td>{{ l.allycode or '' }}</td><td>{{ l.linked_by or '' }}</td></tr>{% endfor %}
+<table><tr><th>discord id</th><th>allycode</th><th>player</th><th>guild</th><th>role</th><th>linked by</th></tr>
+{% for l in links %}<tr><td>{{ l.discord_id }}</td><td>{{ l.allycode or '' }}</td><td>{{ l.player or '' }}</td><td>{{ l.guild_name or '' }}</td><td>{{ l.role or '' }}</td><td>{{ l.linked_by or '' }}</td></tr>{% endfor %}
 </table>
 {% endif %}
 

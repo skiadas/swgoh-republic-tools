@@ -53,7 +53,7 @@
     {% if is_admin(request) %}<a href="/admin">Admin</a>{% endif %}{% if is_admin(request) and s.enabled %} · {% endif %}
     {% if s.enabled %}
       {% if s.user %}
-      <a href="/auth/me">{{ s.user.username }}</a> · <a href="/auth/logout">Sign out</a>
+      <a href="/auth/me">{{ s.user.username }}</a>{% if s.link %} · {% if s.link.role %}{{ s.link.role }} · {% endif %}{{ s.link.player or s.link.allycode }} ({{ s.link.allycode }}){% else %} · <span class="muted" title="No player linked yet — see /auth/me">not linked</span>{% endif %} · <a href="/auth/logout">Sign out</a>
       {% else %}
       <a href="/auth/login">Sign in with Discord</a>
       {% endif %}
