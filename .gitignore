@@ -6,3 +6,6 @@ __pycache__/
 .DS_Store
 .env
 node_modules/
+
+# EchoBase/HotUtils experiment exports (local artifacts)
+echobase-assignments-*.json

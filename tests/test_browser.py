@@ -428,7 +428,7 @@ def test_planner_generate_day(admin_page, app_url, errors):
     page.locator(".tabs .tab", has_text="Day 2").click()
     page.locator(".planet", has_text="Bracca").wait_for(timeout=8000)
     day_notice = page.locator(".notice", has_text="Day 2:").first
-    day_notice.locator(".gen-btn").click()
+    day_notice.locator("button.gen-btn").click()
     page.locator("#gen .modal", has_text="Scope: day 2").wait_for(timeout=8000)
     page.locator("#gen button", has_text="Generate").click()
     page.locator("#gen .modal").wait_for(state="hidden", timeout=8000)

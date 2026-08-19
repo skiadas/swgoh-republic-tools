@@ -4,6 +4,8 @@
   {% if can_edit and planets %}<button type="button" class="gen-btn" title="Auto-generate this day's assignments"
     hx-get="/g/{{ guild_id }}/platoons/gen?scope=day&d={{ day }}" hx-target="#gen" hx-swap="innerHTML"
     hx-on::after-request="showGen()">auto</button>{% endif %}
+  {% if planets %}<a class="gen-btn" href="/g/{{ guild_id }}/platoons/export-echobase?phase={{ day }}"
+    title="Download this phase's assignments (EchoBase file for HotUtils)">export</a>{% endif %}
 </div>
 
 {% if not planets %}

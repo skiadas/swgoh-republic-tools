@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 
-from swgoh_reviewer import assignments_logic, calc, calc_logic, planner, platoons, report_logic, roster_stats
+from swgoh_reviewer import assignments_logic, calc, calc_logic, echobase_export, planner, platoons, report_logic, roster_stats
 from swgoh_reviewer.comlink import DEFAULT_COMLINK
 from swgoh_reviewer.config import data_root
 from swgoh_reviewer.discord_bot import handle_interaction
@@ -747,6 +747,21 @@ def create_app(outdir=None, db_path=None, comlink=None):
         resp = templates.TemplateResponse(request, "_platoons_day.html", ctx)
         resp.headers["HX-Refresh"] = "true"
         return resp
+
+    @app.get("/g/{guild_id}/platoons/export-echobase")
+    def platoons_export_echobase(guild_id: str, request: Request, phase: int = 1):
+        require_guild(guild_id)
+        if game_data_missing():
+            raise HTTPException(400, "Game data isn't built yet")
+        _data, _days_state, fills, _n, _d = planner_view(guild_id, request)
+        rote = json.loads((outdir / "rote" / "t05D.json").read_text())
+        payload = echobase_export.build_file(rote, fills, max(1, min(6, phase)))
+        fname = echobase_export.filename(payload["phase"], payload["timestamp"])
+        return Response(
+            content=json.dumps(payload, separators=(",", ":")),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
 
     # ---- assignments by member ----
     def assignments_view(guild_id):

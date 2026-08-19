@@ -890,6 +890,95 @@ def test_planner_page_and_edit(tmp_path):
     assert client.get("/g/G1/plan").json()["plan"] is not None
 
 
+def _rote_fixture():
+    return {
+        "tbId": "t05D",
+        "phases": [
+            {
+                "phase": 1,
+                "planets": [
+                    {
+                        "name": "Coruscant",
+                        "planetId": "tb3_mixed_phase01_conflict01",
+                        "op": {"platoons": [{"units": [{"baseId": "GENERALSKYWALKER"}, {"baseId": "DUMMY1"}]}]},
+                    },
+                    {
+                        "name": "Mustafar",
+                        "planetId": "tb3_mixed_phase01_conflict02",
+                        "op": {"platoons": [{"units": [{"baseId": "DARTHVADER"}]}]},
+                    },
+                    {
+                        "name": "Corellia",
+                        "planetId": "tb3_mixed_phase01_conflict03",
+                        "op": {"platoons": [{"units": [{"baseId": "HAN SOLO"}]}]},
+                    },
+                ],
+            },
+            {
+                "phase": 3,
+                "planets": [
+                    {"name": "Kashyyyk", "planetId": "tb3_mixed_phase03_conflict01", "op": {"platoons": [{"units": [{"baseId": "YODA"}]}]}},
+                    {"name": "Zeffo", "planetId": "tb3_mixed_phase03_conflict01_bonus", "op": {"platoons": [{"units": [{"baseId": "COMMANDERAHSOKA"}]}]}},
+                    {"name": "Dathomir", "planetId": "tb3_mixed_phase03_conflict02", "op": {"platoons": [{"units": [{"baseId": "NIGHTSISTERZOMBIE"}]}]}},
+                    {"name": "Tatooine", "planetId": "tb3_mixed_phase03_conflict03", "op": {"platoons": [{"units": [{"baseId": "BOBAFETT"}]}]}},
+                ],
+            },
+            {
+                "phase": 4,
+                "planets": [
+                    {"name": "Lothal", "planetId": "tb3_mixed_phase04_conflict01", "op": {"platoons": [{"units": [{"baseId": "EZRABRIDGERS3"}]}]}},
+                    {"name": "Haven-class Medical Station", "planetId": "tb3_mixed_phase04_conflict02", "op": {"platoons": [{"units": [{"baseId": "CAPITALHOMEONE"}]}]}},
+                    {"name": "Kessel", "planetId": "tb3_mixed_phase04_conflict03", "op": {"platoons": [{"units": [{"baseId": "HAN SOLO"}]}]}},
+                    {"name": "Mandalore", "planetId": "tb3_mixed_phase04_conflict03_bonus", "op": {"platoons": [{"units": [{"baseId": "GLLEIA"}]}]}},
+                ],
+            },
+        ],
+    }
+
+
+def test_echobase_export_matches_observed_contract():
+    from swgoh_reviewer import echobase_export
+
+    rote = _rote_fixture()
+    fills = {"Coruscant": {"1": {"0": "123", "1": "456"}}}
+    f = echobase_export.build_file(rote, fills, 1, timestamp="2026-01-01T00:00:00.000Z")
+    assert f["phase"] == "1/1/1"
+    assert f["timestamp"] == "2026-01-01T00:00:00.000Z"
+    assert f["platoonAssignments"] == [
+        {"allyCode": "123", "unitBaseId": "GENERALSKYWALKER", "zoneId": "tb3_mixed_phase01_conflict01_recon01", "platoonDefinitionId": "tb3-platoon-1"},
+        {"allyCode": "456", "unitBaseId": "DUMMY1", "zoneId": "tb3_mixed_phase01_conflict01_recon01", "platoonDefinitionId": "tb3-platoon-1"},
+    ]
+    assert echobase_export.filename(f["phase"], f["timestamp"]) == "echobase-assignments-ROTE-P1_1_1-2026-01-01T00_00_00.000Z.json"
+
+
+def test_echobase_export_phase_strings_include_specials():
+    from swgoh_reviewer import echobase_export
+
+    rote = _rote_fixture()
+    assert echobase_export.build_file(rote, {"Kashyyyk": {"1": {"0": "1"}}}, 3, timestamp="T")["phase"] == "3/3/Z3"
+    assert echobase_export.build_file(rote, {"Lothal": {"1": {"0": "1"}}}, 4, timestamp="T")["phase"] == "4/M4/4"
+    assert echobase_export.build_file(rote, {"Mustafar": {"1": {"0": "1"}}}, 1, timestamp="T")["phase"] == "1/1/1"
+
+
+def test_planner_export_echobase_route(tmp_path):
+    make_data(tmp_path)
+    client = make_client(tmp_path)
+    register_guild(client, tmp_path)
+    seed_plan_db(tmp_path, {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}}, fills={"Coruscant": {"1": {"0": "123"}}})
+    r = client.get("/g/G1/platoons/export-echobase", params={"phase": 1})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/json")
+    assert "attachment; filename=\"echobase-assignments-ROTE-P1_1_1-" in r.headers["content-disposition"]
+    body = r.json()
+    assert body["phase"] == "1/1/1"
+    assert body["platoonAssignments"] == [
+        {"allyCode": "123", "unitBaseId": "GENERALSKYWALKER", "zoneId": "tb3_mixed_phase01_conflict01_recon01", "platoonDefinitionId": "tb3-platoon-1"}
+    ]
+    day = client.get("/g/G1/platoons/day", params={"d": 1})
+    assert day.status_code == 200 and "export-echobase?phase=1" in day.text
+
+
+
 def test_planner_day_emits_img_only_for_cached_assets(tmp_path):
     from PIL import Image
 
