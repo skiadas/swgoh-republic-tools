@@ -915,6 +915,12 @@ def _rote_fixture():
                 ],
             },
             {
+                "phase": 2,
+                "planets": [
+                    {"name": "Geonosis", "planetId": "tb3_mixed_phase02_conflict02", "op": {"platoons": [{"units": [{"baseId": "GENERAL GRIEVOUS"}]}]}},
+                ],
+            },
+            {
                 "phase": 3,
                 "planets": [
                     {"name": "Kashyyyk", "planetId": "tb3_mixed_phase03_conflict01", "op": {"platoons": [{"units": [{"baseId": "YODA"}]}]}},
@@ -955,9 +961,38 @@ def test_echobase_export_phase_strings_include_specials():
     from swgoh_reviewer import echobase_export
 
     rote = _rote_fixture()
-    assert echobase_export.build_file(rote, {"Kashyyyk": {"1": {"0": "1"}}}, 3, timestamp="T")["phase"] == "3/3/Z3"
-    assert echobase_export.build_file(rote, {"Lothal": {"1": {"0": "1"}}}, 4, timestamp="T")["phase"] == "4/M4/4"
+    assert echobase_export.build_file(rote, {"Zeffo": {"1": {"0": "1"}}}, 3, timestamp="T")["phase"] == "1/1/Z3"
+    assert echobase_export.build_file(rote, {"Mandalore": {"1": {"0": "1"}}}, 4, timestamp="T")["phase"] == "1/M4/1"
     assert echobase_export.build_file(rote, {"Mustafar": {"1": {"0": "1"}}}, 1, timestamp="T")["phase"] == "1/1/1"
+    fills3 = {p: {"1": {"0": "1"}} for p in ["Kashyyyk", "Zeffo", "Dathomir", "Tatooine"]}
+    assert echobase_export.build_file(rote, fills3, 3, timestamp="T")["phase"] == "3/3/Z3"
+
+
+def test_echobase_export_day_scopes_across_phases():
+    from swgoh_reviewer import echobase_export
+
+    rote = _rote_fixture()
+    fills = {
+        "Geonosis": {"2": {"0": "111"}},
+        "Zeffo": {"3": {"0": "222"}},
+        "Mandalore": {"4": {"0": "333"}},
+        "Lothal": {"1": {"0": "444"}},
+    }
+    f = echobase_export.build_file(rote, fills, 4, timestamp="T")
+    assert f["phase"] == "2/M4/Z4"
+    assert len(f["platoonAssignments"]) == 4
+    assert {a["zoneId"] for a in f["platoonAssignments"]} == {
+        "tb3_mixed_phase02_conflict02_recon01",
+        "tb3_mixed_phase03_conflict01_bonus_recon01",
+        "tb3_mixed_phase04_conflict03_bonus_recon01",
+        "tb3_mixed_phase04_conflict01_recon01",
+    }
+    by_zone = {a["zoneId"]: a["unitBaseId"] for a in f["platoonAssignments"]}
+    assert by_zone["tb3_mixed_phase02_conflict02_recon01"] == "GENERAL GRIEVOUS"
+    assert by_zone["tb3_mixed_phase04_conflict01_recon01"] == "EZRABRIDGERS3"
+    later = {"Kessel": {"6": {"0": "999"}}}
+    f2 = echobase_export.build_file(rote, later, 4, timestamp="T")
+    assert f2["platoonAssignments"] == [] and f2["phase"] == "1/1/1"
 
 
 def test_planner_export_echobase_route(tmp_path):
@@ -965,7 +1000,7 @@ def test_planner_export_echobase_route(tmp_path):
     client = make_client(tmp_path)
     register_guild(client, tmp_path)
     seed_plan_db(tmp_path, {"1": {"Coruscant": {"goal": "1", "platoons": 6, "cmPct": 50}}}, fills={"Coruscant": {"1": {"0": "123"}}})
-    r = client.get("/g/G1/platoons/export-echobase", params={"phase": 1})
+    r = client.get("/g/G1/platoons/export-echobase", params={"d": 1})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/json")
     assert "attachment; filename=\"echobase-assignments-ROTE-P1_1_1-" in r.headers["content-disposition"]
@@ -975,7 +1010,7 @@ def test_planner_export_echobase_route(tmp_path):
         {"allyCode": "123", "unitBaseId": "GENERALSKYWALKER", "zoneId": "tb3_mixed_phase01_conflict01_recon01", "platoonDefinitionId": "tb3-platoon-1"}
     ]
     day = client.get("/g/G1/platoons/day", params={"d": 1})
-    assert day.status_code == 200 and "export-echobase?phase=1" in day.text
+    assert day.status_code == 200 and "export-echobase?d=1" in day.text
 
 
 

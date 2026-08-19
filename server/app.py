@@ -749,13 +749,13 @@ def create_app(outdir=None, db_path=None, comlink=None):
         return resp
 
     @app.get("/g/{guild_id}/platoons/export-echobase")
-    def platoons_export_echobase(guild_id: str, request: Request, phase: int = 1):
+    def platoons_export_echobase(guild_id: str, request: Request, d: int = 1):
         require_guild(guild_id)
         if game_data_missing():
             raise HTTPException(400, "Game data isn't built yet")
         _data, _days_state, fills, _n, _d = planner_view(guild_id, request)
         rote = json.loads((outdir / "rote" / "t05D.json").read_text())
-        payload = echobase_export.build_file(rote, fills, max(1, min(6, phase)))
+        payload = echobase_export.build_file(rote, fills, max(1, min(6, d)))
         fname = echobase_export.filename(payload["phase"], payload["timestamp"])
         return Response(
             content=json.dumps(payload, separators=(",", ":")),
