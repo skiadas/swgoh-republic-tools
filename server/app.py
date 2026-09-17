@@ -567,7 +567,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
         payload = json.loads(working["payload"]) if working else {}
         return data, payload.get("days") or {}, payload.get("fills") or {}, (working or {}).get("name"), draft is not None
 
-    def planner_day_ctx(guild_id, days_state, fills, d, can_edit):
+    def planner_day_ctx(guild_id, days_state, fills, d, can_edit, notice=""):
         data = planner_data(guild_id)
         active = planner.active_planets(days_state, fills, data["planets"], d)
         models = [planner.planet_render_model(p, data["members"], fills, days_state, d) for p in active]
@@ -586,6 +586,7 @@ def create_app(outdir=None, db_path=None, comlink=None):
             "member_names": names,
             "can_edit": can_edit,
             "assets": assets,
+            "notice": notice,
         }
 
     def save_draft(guild_id, days_state, fills, request):
@@ -640,15 +641,20 @@ def create_app(outdir=None, db_path=None, comlink=None):
         by_day = (fills.get(planet, {}).get(day) or fills.get(planet, {}).get(str(day)) or {})
         cur = by_day.get(str(slot))
         sl = planner.unit_at(p, slot)
+        p_map = planner.planets_map(data["planets"])
         for m in elig:
-            dims = []
-            if planner.unit_assigned_on_day(fills, planner.planets_map(data["planets"]), m["ac"], sl["b"], day, planet, slot):
-                dims.append("already places this unit elsewhere today")
+            m["move"] = None
+            m["move_title"] = ""
+            ds = planner.dup_slot(fills, p_map, m["ac"], sl["b"], day, planet, slot)
+            if ds is not None:
+                m["move"] = ds
+                m["move_title"] = f"already places {sl['n']} on {ds[0]} today — assigning here moves them"
+            m["dim"] = False
+            m["dim_title"] = ""
             cnt = planner.count_on_planet_day(fills, planet, day, m["ac"]) + (0 if cur == m["ac"] else 1)
             if cnt > planner.MAX_UNITS:
-                dims.append(f"already has {cnt - 1} fills on {planet} today (max {planner.MAX_UNITS})")
-            m["dim"] = bool(dims)
-            m["dim_title"] = "; ".join(dims)
+                m["dim"] = True
+                m["dim_title"] = f"already has {cnt - 1} fills on {planet} today (max {planner.MAX_UNITS})"
         return templates.TemplateResponse(
             request,
             "_picker.html",
@@ -686,14 +692,29 @@ def create_app(outdir=None, db_path=None, comlink=None):
         new_fills = {p: {dd: dict(s) for dd, s in by.items()} for p, by in fills.items()}
         by_day = new_fills.setdefault(planet, {})
         slots = by_day.setdefault(str(day), {})
+        notice = ""
         if not ac:
             slots.pop(str(slot), None)
             if not slots:
                 by_day.pop(str(day), None)
         else:
+            p_map = planner.planets_map(data["planets"])
+            if planet in p_map and 0 <= slot < 90:
+                unit_b = planner.unit_at(p_map[planet], slot)["b"]
+                moved = planner.dup_slot(new_fills, p_map, ac, unit_b, day, planet, slot)
+                if moved is not None:
+                    mpn, mslot = moved
+                    old = new_fills.get(mpn, {}).get(str(day), {})
+                    old.pop(str(mslot), None)
+                    if not old:
+                        new_fills.get(mpn, {}).pop(str(day), None)
+                    if not new_fills.get(mpn):
+                        new_fills.pop(mpn, None)
+                    who = next((m["name"] for m in data["members"] if str(m["ac"]) == ac), ac)
+                    notice = f"Moved {who} off {mpn} — they already place {planner.unit_at(p_map[planet], slot)['n']} today"
             slots[str(slot)] = ac
         save_draft(guild_id, days_state, new_fills, request)
-        ctx = planner_day_ctx(guild_id, days_state, new_fills, day, True)
+        ctx = planner_day_ctx(guild_id, days_state, new_fills, day, True, notice=notice)
         return templates.TemplateResponse(request, "_platoons_day.html", ctx)
 
     @app.post("/g/{guild_id}/platoons/generate", response_class=HTMLResponse)

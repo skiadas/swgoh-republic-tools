@@ -16,19 +16,20 @@ Assigner saves out (`echobase-assignments-ROTE-P*.json`), which HotUtils'
     Mandalore is included (e.g. day 3 with Zeffo = "3/3/Z3", day 4 with
     Mandalore = "4/M4/4").
 
-The export is scoped to a day: when `active` (the day's active planets, as
-the planner tab shows them) is given, only those planets are included;
-otherwise every planet with at least one slot covered on that day (a slot's
-latest assignment with day <= the selected day, per planner.latest_assignee)
-is included, across all phases. The phase string's per-chain token is the
-highest level among the covered planets of that chain (Zeffo/Mandalore add
-the Z/M prefix). The filename carries both the phase string and the day
-(e.g. `...-P5_M4_4-D6-<timestamp>.json`).
+The export is scoped to a single day: only slots filled on the selected day
+are emitted (a slot's fill is the player assigned to it on that day; fills
+from earlier days are ignored — a slot can be re-assigned on a later day as
+a backup). When `active` (the day's active planets, as the planner tab shows
+them) is given, only those planets are included; otherwise every planet with
+at least one slot filled on the day is included. The phase string's per-chain
+token is the highest level among the covered planets of that chain
+(Zeffo/Mandalore add the Z/M prefix). The filename carries both the phase
+string and the day (e.g. `...-P5_M4_4-D6-<timestamp>.json`).
 """
 
 from datetime import datetime, timezone
 
-from swgoh_reviewer.planner import SLOTS_PER_PLATOON, latest_assignee
+from swgoh_reviewer.planner import SLOTS_PER_PLATOON
 
 
 def _all_planets(rote, active=None):
@@ -39,15 +40,16 @@ def _all_planets(rote, active=None):
             yield planet, ph.get("phase", 1)
 
 
+def _day_fills(fills, name, day):
+    by_day = (fills or {}).get(name) or {}
+    return by_day.get(day) or by_day.get(str(day)) or {}
+
+
 def _covered_planets(rote, fills, day, active=None):
-    """(planet, phase) pairs with at least one slot covered on `day`."""
-    fills = fills or {}
+    """(planet, phase) pairs with at least one slot filled on `day`."""
     for planet, phase in _all_planets(rote, active):
-        name = planet.get("name") or ""
-        for slots in (fills.get(name) or {}).values():
-            if any(latest_assignee(fills, name, s, day) for s in slots):
-                yield planet, phase
-                break
+        if _day_fills(fills, planet.get("name") or "", day):
+            yield planet, phase
 
 
 def _chain_levels(rote, fills, day, active=None):
@@ -101,44 +103,33 @@ def phase_string(rote, fills, day, active=None):
 def build_file(rote, fills, day, active=None, timestamp=None):
     """The file payload: {phase, timestamp, platoonAssignments}.
 
-    Emits one entry per slot covered on `day` for the planets in `active`
+    Emits one entry per slot filled on `day` for the planets in `active`
     (all planets in the TB doc when `active` is None); slots whose fill
-    references an out-of-range platoon/position are skipped. A slot assigned
-    more than once (on different days) is emitted once, with the latest
-    assignment at or before `day`.
+    references an out-of-range platoon/position are skipped.
     """
     if timestamp is None:
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     assigns = []
-    fills = fills or {}
     for planet, _phase in _all_planets(rote, active):
         zone = planet["planetId"] + "_recon01"
         platoons = (planet.get("op") or {}).get("platoons") or []
         name = planet.get("name") or ""
-        emitted = set()
-        for dd, slots in (fills.get(name) or {}).items():
-            if int(dd) > day:
+        for k, ac in _day_fills(fills, name, day).items():
+            s = int(k)
+            if not ac:
                 continue
-            for k in slots:
-                s = int(k)
-                if s in emitted:
-                    continue
-                ac = latest_assignee(fills, name, s, day)
-                if ac is None:
-                    continue
-                plat, pos = divmod(s, SLOTS_PER_PLATOON)
-                if plat >= len(platoons) or pos >= len(platoons[plat].get("units") or []):
-                    continue
-                emitted.add(s)
-                unit = platoons[plat]["units"][pos]["baseId"]
-                assigns.append(
-                    {
-                        "allyCode": str(ac[0]),
-                        "unitBaseId": unit,
-                        "zoneId": zone,
-                        "platoonDefinitionId": "tb3-platoon-%d" % (plat + 1),
-                    }
-                )
+            plat, pos = divmod(s, SLOTS_PER_PLATOON)
+            if plat >= len(platoons) or pos >= len(platoons[plat].get("units") or []):
+                continue
+            unit = platoons[plat]["units"][pos]["baseId"]
+            assigns.append(
+                {
+                    "allyCode": str(ac),
+                    "unitBaseId": unit,
+                    "zoneId": zone,
+                    "platoonDefinitionId": "tb3-platoon-%d" % (plat + 1),
+                }
+            )
     return {"phase": phase_string(rote, fills, day, active), "timestamp": timestamp, "platoonAssignments": assigns}
 
 

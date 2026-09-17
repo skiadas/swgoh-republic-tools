@@ -95,6 +95,23 @@ def unit_assigned_on_day(fills, p_map, ac, unit_base_id, d, skip_p=None, skip_sl
     return False
 
 
+def dup_slot(fills, p_map, ac, unit_base_id, d, skip_p=None, skip_slot=None):
+    """(planet, slot) where `ac` already holds `unit_base_id` on day `d`.
+
+    Scans every planet for the same day; skips the exact (skip_p, skip_slot)
+    being assigned. Returns None when there is no other fill to move.
+    """
+    for pn, by_day in (fills or {}).items():
+        slots = by_day.get(d) or by_day.get(str(d)) or {}
+        for k, v in slots.items():
+            s = int(k)
+            if v != ac or (pn == skip_p and s == skip_slot):
+                continue
+            if pn in p_map and unit_at(p_map[pn], s)["b"] == unit_base_id:
+                return (pn, s)
+    return None
+
+
 # ---- star plan ----
 
 def plan_entry(days, pn, d):

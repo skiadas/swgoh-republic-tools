@@ -1,5 +1,6 @@
 {% set ns = namespace(fills=0) %}
 {% for planet in planets %}{% set ns.fills = ns.fills + planet.platoons|sum(attribute='filled') %}{% endfor %}
+{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
 <div class="notice">Day {{ day }}: <b>{{ ns.fills }}</b> assignments.
   {% if can_edit and planets %}<button type="button" class="gen-btn" title="Auto-generate this day's assignments"
     hx-get="/g/{{ guild_id }}/platoons/gen?scope=day&d={{ day }}" hx-target="#gen" hx-swap="innerHTML"

@@ -8,11 +8,12 @@
       hx-target="#day" hx-swap="innerHTML" hx-on::after-request="hidePicker()">Clear today&#8217;s fill</button>
     {% endif %}
     {% for m in members %}
-    <button class="pick-row{{ ' dim' if m.dim }}" title="{{ m.dim_title }}"
+    <button class="pick-row{{ ' warn' if m.move }}{{ ' dim' if m.dim }}" title="{{ m.move_title or m.dim_title }}"
+      {% if m.move %}hx-confirm="Move {{ m.name }}? {{ m.move_title }}"{% endif %}
       hx-post="/g/{{ guild_id }}/platoons/assign"
       hx-vals='{"planet":"{{ planet }}","slot":{{ slot }},"day":{{ day }},"ac":"{{ m.ac }}"}'
       hx-target="#day" hx-swap="innerHTML" hx-on::after-request="hidePicker()">
-      <span>{{ m.name }}</span><span class="lvl">{{ '★' ~ m.level if m.ship else 'R' ~ m.level }}</span></button>
+      <span>{{ m.name }}</span>{% if m.move %}<span class="warn">moves</span>{% endif %}<span class="lvl">{{ '★' ~ m.level if m.ship else 'R' ~ m.level }}</span></button>
     {% endfor %}
   </div>
 </div>
