@@ -187,15 +187,16 @@ def cell_conflicts(planets, members, fills, days, pn, slot, d, ac):
 
 # ---- generation ----
 
-def _gen_pick(cands, strategy):
+def _gen_pick(cands, strategy, last=None):
     if not cands:
         return None
+    last = last or set()
     if strategy == "weakest":
-        cands.sort(key=lambda c: (c["level"], c["day_total"], c["name"]))
+        cands.sort(key=lambda c: (c["ac"] in last, c["level"], c["day_total"], c["name"]))
     elif strategy == "minimize":
-        cands.sort(key=lambda c: (c["day_total"], -c["level"], c["name"]))
+        cands.sort(key=lambda c: (c["ac"] in last, c["day_total"], -c["level"], c["name"]))
     else:
-        cands.sort(key=lambda c: (-c["level"], c["day_total"], c["name"]))
+        cands.sort(key=lambda c: (c["ac"] in last, -c["level"], c["day_total"], c["name"]))
     return cands[0]
 
 
@@ -276,8 +277,24 @@ def _scope_days(scope, days, fills, planets):
     return out
 
 
+def _backup_slots(planet, pn, d, fills):
+    """Slots with a fill from a strictly earlier day (backup candidates)."""
+    out = []
+    for s in range(len(planet["platoons"]) * SLOTS_PER_PLATOON):
+        cov = latest_assignee(fills, pn, s, d)
+        if cov is not None and cov[1] < d:
+            out.append(s)
+    return out
+
+
 def generate(planets, members, fills, days, scope=None, strategy="strongest", policy="plan"):
-    """Fill uncovered slots for the scope; returns (new_fills, added)."""
+    """Fill uncovered slots for the scope, then back up earlier-day fills.
+
+    Per day, pass 1 fills slots with no fill on or before the day (primary);
+    pass 2 re-assigns slots filled on strictly earlier days so players who
+    miss can be covered — the earlier assignee stays eligible but is ranked
+    last, picked only when nobody else has the unit. Returns (new_fills, added).
+    """
     p_map = planets_map(planets)
     new_fills = {pn: {dd: dict(slots) for dd, slots in by_day.items()} for pn, by_day in (fills or {}).items()}
     added = 0
@@ -295,6 +312,23 @@ def generate(planets, members, fills, days, scope=None, strategy="strongest", po
                 sl = unit_at(planet, slot)
                 cands = _eligible_candidates(planet, members, pn, slot, ctx)
                 pick = _gen_pick(cands, strategy)
+                if pick is None:
+                    continue
+                new_fills.setdefault(pn, {}).setdefault(str(d), {})[str(slot)] = pick["ac"]
+                ctx.used_units.setdefault(pick["ac"], set()).add(sl["b"])
+                ctx.planet_counts[(pn, pick["ac"])] = ctx.planet_counts.get((pn, pick["ac"]), 0) + 1
+                ctx.day_total[pick["ac"]] = ctx.day_total.get(pick["ac"], 0) + 1
+                added += 1
+        for pn in pns:
+            planet = p_map.get(pn)
+            if planet is None:
+                continue
+            backup = sorted(_backup_slots(planet, pn, d, new_fills), key=lambda s: eligible_count(planet, members, s))
+            for slot in backup:
+                sl = unit_at(planet, slot)
+                holder = latest_assignee(new_fills, pn, slot, d)[0]
+                cands = _eligible_candidates(planet, members, pn, slot, ctx)
+                pick = _gen_pick(cands, strategy, last={holder})
                 if pick is None:
                     continue
                 new_fills.setdefault(pn, {}).setdefault(str(d), {})[str(slot)] = pick["ac"]

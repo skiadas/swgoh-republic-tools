@@ -1118,6 +1118,54 @@ def test_planner_assign_moves_duplicate_unit(tmp_path):
     assert rp.status_code == 200 and "moves" not in rp.text
 
 
+def _gen_backup_planet():
+    from swgoh_reviewer import planner
+
+    return {
+        "name": "Kashyyyk",
+        "phase": 3,
+        "relicReq": 5,
+        "platoons": [
+            {"idx": 1, "slots": [{"b": "GENERALSKYWALKER", "n": "General Skywalker", "c": 1, "gl": 1}] + [{"b": "DUMMY1", "n": "Dummy 1", "c": 1, "gl": 0}] * 14}
+        ],
+    }
+
+
+def test_planner_generate_backfills_previous_day_slots():
+    from swgoh_reviewer import planner
+
+    planets = [_gen_backup_planet()]
+    members = [
+        {"ac": "111", "name": "A", "u": {"GENERALSKYWALKER": (6, 0), "DUMMY1": (6, 0)}},
+        {"ac": "222", "name": "B", "u": {"GENERALSKYWALKER": (7, 0), "DUMMY1": (7, 0)}},
+        {"ac": "333", "name": "C", "u": {"DUMMY1": (6, 0)}},
+    ]
+    days = {"3": {"Kashyyyk": {"goal": "1", "platoons": 1, "cmPct": 50}}, "4": {"Kashyyyk": {"goal": "1", "platoons": 1, "cmPct": 50}}}
+    fills = {"Kashyyyk": {"3": {"0": "111"}}}
+    new_fills, added = planner.generate(planets, members, fills, days, scope={"mode": "day", "day": 4}, strategy="strongest", policy="full")
+    d4 = new_fills["Kashyyyk"]["4"]
+    assert d4["0"] == "222", "day-3 GS slot gets a day-4 backup by someone else"
+    assert d4["1"] == "222", "uncovered DUMMY1 slot filled in the primary pass"
+    assert added == 4, "primary fills (3 DUMMY1) + backup (1 GS)"
+    assert d4["0"] != fills["Kashyyyk"]["3"]["0"]
+
+
+def test_planner_generate_backup_falls_back_to_holder():
+    from swgoh_reviewer import planner
+
+    planets = [_gen_backup_planet()]
+    members = [
+        {"ac": "111", "name": "A", "u": {"GENERALSKYWALKER": (6, 0), "DUMMY1": (6, 0)}},
+        {"ac": "222", "name": "B", "u": {"DUMMY1": (7, 0)}},
+    ]
+    days = {"3": {"Kashyyyk": {"goal": "1", "platoons": 1, "cmPct": 50}}, "4": {"Kashyyyk": {"goal": "1", "platoons": 1, "cmPct": 50}}}
+    fills = {"Kashyyyk": {"3": {"0": "111"}}}
+    new_fills, added = planner.generate(planets, members, fills, days, scope={"mode": "day", "day": 4}, strategy="strongest", policy="full")
+    d4 = new_fills["Kashyyyk"]["4"]
+    assert d4["0"] == "111", "only A owns GS, so the holder is the backup pick"
+    assert added == 3
+
+
 
 def test_planner_day_emits_img_only_for_cached_assets(tmp_path):
     from PIL import Image
