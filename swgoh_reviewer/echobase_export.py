@@ -16,11 +16,14 @@ Assigner saves out (`echobase-assignments-ROTE-P*.json`), which HotUtils'
     Mandalore is included (e.g. day 3 with Zeffo = "3/3/Z3", day 4 with
     Mandalore = "4/M4/4").
 
-The export is scoped to a day, not a TB phase: every planet with at least
-one slot covered on that day (a slot's latest assignment with day <= the
-selected day, per planner.latest_assignee) is included, across all phases.
-The phase string's per-chain token is the highest level among the covered
-planets of that chain (Zeffo/Mandalore add the Z/M prefix).
+The export is scoped to a day: when `active` (the day's active planets, as
+the planner tab shows them) is given, only those planets are included;
+otherwise every planet with at least one slot covered on that day (a slot's
+latest assignment with day <= the selected day, per planner.latest_assignee)
+is included, across all phases. The phase string's per-chain token is the
+highest level among the covered planets of that chain (Zeffo/Mandalore add
+the Z/M prefix). The filename carries both the phase string and the day
+(e.g. `...-P5_M4_4-D6-<timestamp>.json`).
 """
 
 from datetime import datetime, timezone
@@ -28,16 +31,18 @@ from datetime import datetime, timezone
 from swgoh_reviewer.planner import SLOTS_PER_PLATOON, latest_assignee
 
 
-def _all_planets(rote):
+def _all_planets(rote, active=None):
     for ph in rote.get("phases", []):
         for planet in ph.get("planets") or []:
+            if active is not None and (planet.get("name") or "") not in active:
+                continue
             yield planet, ph.get("phase", 1)
 
 
-def _covered_planets(rote, fills, day):
+def _covered_planets(rote, fills, day, active=None):
     """(planet, phase) pairs with at least one slot covered on `day`."""
     fills = fills or {}
-    for planet, phase in _all_planets(rote):
+    for planet, phase in _all_planets(rote, active):
         name = planet.get("name") or ""
         for slots in (fills.get(name) or {}).values():
             if any(latest_assignee(fills, name, s, day) for s in slots):
@@ -45,7 +50,7 @@ def _covered_planets(rote, fills, day):
                 break
 
 
-def _chain_levels(rote, fills, day):
+def _chain_levels(rote, fills, day, active=None):
     """Per-chain highest covered level + Zeffo/Mandalore presence.
 
     Returns (dark, neutral, light, zeffo, mandalore) where each level is 0
@@ -53,7 +58,7 @@ def _chain_levels(rote, fills, day):
     """
     dark = neutral = light = 0
     zeffo = mandalore = False
-    for planet, phase in _covered_planets(rote, fills, day):
+    for planet, phase in _covered_planets(rote, fills, day, active):
         pid = planet.get("planetId") or ""
         lvl = int(phase)
         if pid.endswith("_bonus"):
@@ -74,14 +79,14 @@ def _chain_levels(rote, fills, day):
     return dark, neutral, light, zeffo, mandalore
 
 
-def phase_string(rote, fills, day):
+def phase_string(rote, fills, day, active=None):
     """The export's `phase` field for the planets covered on `day`.
 
     e.g. "1/1/1", "3/3/Z3", "4/M4/4", or "2/M4/Z4" for a day covering
     Geonosis + Zeffo + Mandalore + level-4 planets. A chain with no covered
     planet reads "1".
     """
-    dark, neutral, light, zeffo, mandalore = _chain_levels(rote, fills, day)
+    dark, neutral, light, zeffo, mandalore = _chain_levels(rote, fills, day, active)
 
     def tok(level, pref):
         return pref + str(level) if level else "1"
@@ -93,19 +98,20 @@ def phase_string(rote, fills, day):
     )
 
 
-def build_file(rote, fills, day, timestamp=None):
+def build_file(rote, fills, day, active=None, timestamp=None):
     """The file payload: {phase, timestamp, platoonAssignments}.
 
-    Emits one entry per slot covered on `day`, across every planet in the
-    TB doc; slots whose fill references an out-of-range platoon/position
-    are skipped. A slot assigned more than once (on different days) is
-    emitted once, with the latest assignment at or before `day`.
+    Emits one entry per slot covered on `day` for the planets in `active`
+    (all planets in the TB doc when `active` is None); slots whose fill
+    references an out-of-range platoon/position are skipped. A slot assigned
+    more than once (on different days) is emitted once, with the latest
+    assignment at or before `day`.
     """
     if timestamp is None:
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     assigns = []
     fills = fills or {}
-    for planet, _phase in _all_planets(rote):
+    for planet, _phase in _all_planets(rote, active):
         zone = planet["planetId"] + "_recon01"
         platoons = (planet.get("op") or {}).get("platoons") or []
         name = planet.get("name") or ""
@@ -133,10 +139,15 @@ def build_file(rote, fills, day, timestamp=None):
                         "platoonDefinitionId": "tb3-platoon-%d" % (plat + 1),
                     }
                 )
-    return {"phase": phase_string(rote, fills, day), "timestamp": timestamp, "platoonAssignments": assigns}
+    return {"phase": phase_string(rote, fills, day, active), "timestamp": timestamp, "platoonAssignments": assigns}
 
 
-def filename(phase, timestamp):
-    """Download filename following the EchoBase convention (colons -> _)."""
+def filename(phase, timestamp, day=None):
+    """Download filename following the EchoBase convention (colons -> _).
+
+    The selected day is appended after the phase token, e.g.
+    `echobase-assignments-ROTE-P5_M4_4-D6-<timestamp>.json`.
+    """
     ts = timestamp.replace(":", "_")
-    return "echobase-assignments-ROTE-P%s-%s.json" % (phase.replace("/", "_"), ts)
+    suffix = "-D%d" % day if day is not None else ""
+    return "echobase-assignments-ROTE-P%s%s-%s.json" % (phase.replace("/", "_"), suffix, ts)

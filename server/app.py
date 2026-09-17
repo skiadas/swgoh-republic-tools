@@ -753,10 +753,12 @@ def create_app(outdir=None, db_path=None, comlink=None):
         require_guild(guild_id)
         if game_data_missing():
             raise HTTPException(400, "Game data isn't built yet")
-        _data, _days_state, fills, _n, _d = planner_view(guild_id, request)
+        data, days_state, fills, _n, _d = planner_view(guild_id, request)
         rote = json.loads((outdir / "rote" / "t05D.json").read_text())
-        payload = echobase_export.build_file(rote, fills, max(1, min(6, d)))
-        fname = echobase_export.filename(payload["phase"], payload["timestamp"])
+        day = max(1, min(6, d))
+        active = [p["name"] for p in planner.active_planets(days_state, fills, data["planets"], day)]
+        payload = echobase_export.build_file(rote, fills, day, active=active)
+        fname = echobase_export.filename(payload["phase"], payload["timestamp"], day=day)
         return Response(
             content=json.dumps(payload, separators=(",", ":")),
             media_type="application/json",

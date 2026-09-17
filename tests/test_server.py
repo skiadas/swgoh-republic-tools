@@ -938,6 +938,12 @@ def _rote_fixture():
                     {"name": "Mandalore", "planetId": "tb3_mixed_phase04_conflict03_bonus", "op": {"platoons": [{"units": [{"baseId": "GLLEIA"}]}]}},
                 ],
             },
+            {
+                "phase": 5,
+                "planets": [
+                    {"name": "Malachor", "planetId": "tb3_mixed_phase05_conflict02", "op": {"platoons": [{"units": [{"baseId": "DARTHREVAN"}]}]}},
+                ],
+            },
         ],
     }
 
@@ -995,6 +1001,56 @@ def test_echobase_export_day_scopes_across_phases():
     assert f2["platoonAssignments"] == [] and f2["phase"] == "1/1/1"
 
 
+def test_echobase_export_scopes_to_active_planets():
+    from swgoh_reviewer import echobase_export
+
+    rote = _rote_fixture()
+    fills = {
+        "Geonosis": {"2": {"0": "111"}},
+        "Zeffo": {"3": {"0": "222"}},
+        "Kashyyyk": {"3": {"0": "333"}},
+    }
+    f = echobase_export.build_file(rote, fills, 3, active=["Kashyyyk", "Zeffo"], timestamp="T")
+    assert f["phase"] == "1/1/Z3"
+    assert {a["zoneId"] for a in f["platoonAssignments"]} == {
+        "tb3_mixed_phase03_conflict01_recon01",
+        "tb3_mixed_phase03_conflict01_bonus_recon01",
+    }
+    f_all = echobase_export.build_file(rote, fills, 3, timestamp="T")
+    assert f_all["phase"] == "2/1/Z3"
+
+
+def test_echobase_export_mixed_day_planets_only():
+    from swgoh_reviewer import echobase_export
+
+    rote = _rote_fixture()
+    fills = {
+        "Coruscant": {"1": {"0": "999"}},
+        "Geonosis": {"2": {"0": "111"}},
+        "Zeffo": {"3": {"0": "222"}},
+        "Lothal": {"4": {"0": "444"}},
+        "Kessel": {"5": {"0": "555"}},
+        "Mandalore": {"5": {"0": "666"}},
+        "Malachor": {"6": {"0": "777"}},
+    }
+    active = ["Malachor", "Kessel", "Lothal", "Mandalore"]
+    f = echobase_export.build_file(rote, fills, 6, active=active, timestamp="T")
+    assert f["phase"] == "5/M4/4"
+    assert {a["zoneId"] for a in f["platoonAssignments"]} == {
+        "tb3_mixed_phase04_conflict01_recon01",
+        "tb3_mixed_phase04_conflict03_recon01",
+        "tb3_mixed_phase04_conflict03_bonus_recon01",
+        "tb3_mixed_phase05_conflict02_recon01",
+    }
+
+
+def test_echobase_export_filename_includes_day():
+    from swgoh_reviewer import echobase_export
+
+    assert echobase_export.filename("5/M4/4", "2026-09-17T13:22:19.937Z", day=6) == "echobase-assignments-ROTE-P5_M4_4-D6-2026-09-17T13_22_19.937Z.json"
+    assert echobase_export.filename("1/1/1", "T") == "echobase-assignments-ROTE-P1_1_1-T.json"
+
+
 def test_planner_export_echobase_route(tmp_path):
     make_data(tmp_path)
     client = make_client(tmp_path)
@@ -1003,7 +1059,7 @@ def test_planner_export_echobase_route(tmp_path):
     r = client.get("/g/G1/platoons/export-echobase", params={"d": 1})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/json")
-    assert "attachment; filename=\"echobase-assignments-ROTE-P1_1_1-" in r.headers["content-disposition"]
+    assert "attachment; filename=\"echobase-assignments-ROTE-P1_1_1-D1-" in r.headers["content-disposition"]
     body = r.json()
     assert body["phase"] == "1/1/1"
     assert body["platoonAssignments"] == [
